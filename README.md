@@ -1,5 +1,7 @@
 # IT Job Aggregator
 
+[![CI](https://github.com/AbdalrhmanAbuyaqoub/it-job-aggregator/actions/workflows/ci.yml/badge.svg)](https://github.com/AbdalrhmanAbuyaqoub/it-job-aggregator/actions/workflows/ci.yml)
+
 An IT job aggregator bot that scrapes job listings from multiple sources, filters them, removes duplicates, and posts them to a Telegram channel. 
 
 This project is built with a strong focus on QA/SDET practices, including comprehensive testing (unit, integration, E2E), CI/CD, and production-grade architecture.
