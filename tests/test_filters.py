@@ -1,4 +1,5 @@
 import pytest
+
 from it_job_aggregator.filters import JobFilter
 
 

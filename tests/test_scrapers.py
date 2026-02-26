@@ -1,6 +1,7 @@
-import pytest
 from unittest.mock import AsyncMock, patch
-from bs4 import BeautifulSoup
+
+import pytest
+
 from it_job_aggregator.scrapers.telegram_scraper import TelegramScraper
 
 # Sample HTML structure resembling Telegram Web Preview
@@ -18,13 +19,13 @@ SAMPLE_HTML = """
             Apply here: <a href="https://example.com/apply">Application Link</a>
         </div>
     </div>
-    
+
     <div class="tgme_widget_message" data-post="job_channel/124">
         <div class="tgme_widget_message_text">
             Just a regular non-job message. Welcome to the channel!
         </div>
     </div>
-    
+
     <div class="tgme_widget_message" data-post="job_channel/125">
         <div class="tgme_widget_message_text">
             Looking for a Junior QA!<br>
@@ -88,7 +89,6 @@ async def test_telegram_scraper_http_error(scraper, httpx_mock):
 @pytest.mark.asyncio
 async def test_telegram_scraper_succeeds_on_retry(scraper, httpx_mock):
     """Test that the scraper recovers after a transient HTTP error."""
-    import httpx
 
     # First attempt fails, second succeeds
     httpx_mock.add_response(status_code=500)

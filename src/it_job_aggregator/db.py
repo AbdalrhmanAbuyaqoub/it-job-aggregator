@@ -1,5 +1,5 @@
-import sqlite3
 import logging
+import sqlite3
 
 from it_job_aggregator.models import Job
 

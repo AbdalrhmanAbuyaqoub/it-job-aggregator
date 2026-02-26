@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List
+
 from it_job_aggregator.models import Job
 
 
@@ -9,7 +9,7 @@ class BaseScraper(ABC):
     """
 
     @abstractmethod
-    async def scrape(self) -> List[Job]:
+    async def scrape(self) -> list[Job]:
         """
         Scrape jobs from the target source and return a list of Job objects.
         """

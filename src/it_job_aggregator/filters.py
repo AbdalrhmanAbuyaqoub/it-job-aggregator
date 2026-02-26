@@ -65,15 +65,12 @@ class JobFilter:
     def __init__(self):
         # Compile a regex pattern that matches any of the keywords as whole words
         # For English, we use \b for word boundaries.
-        eng_pattern = (
-            r"\b(?:" + "|".join(re.escape(kw) for kw in self.ENGLISH_KEYWORDS) + r")\b"
-        )
+        eng_pattern = r"\b(?:" + "|".join(re.escape(kw) for kw in self.ENGLISH_KEYWORDS) + r")\b"
 
-        # For Arabic, \b might not work perfectly due to prefix/suffix attachments in Arabic grammar,
+        # For Arabic, \b might not work perfectly due to prefix/suffix
+        # attachments in Arabic grammar,
         # but we'll use a standard search for the base words.
-        ar_pattern = (
-            r"(?:" + "|".join(re.escape(kw) for kw in self.ARABIC_KEYWORDS) + r")"
-        )
+        ar_pattern = r"(?:" + "|".join(re.escape(kw) for kw in self.ARABIC_KEYWORDS) + r")"
 
         # Combine patterns, ignore case
         combined_pattern = f"{eng_pattern}|{ar_pattern}"

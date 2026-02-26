@@ -1,4 +1,5 @@
 import re
+
 from it_job_aggregator.models import Job
 
 
@@ -29,7 +30,7 @@ class JobFormatter:
         title = cls.escape_markdown(job.title)
         source = cls.escape_markdown(job.source)
 
-        message = f"🚀 *New IT Job Posting*\n\n"
+        message = "🚀 *New IT Job Posting*\n\n"
         message += f"*Title:* {title}\n"
 
         if job.company:
@@ -49,7 +50,8 @@ class JobFormatter:
         # Link URL does not need escaping inside the href part of Markdown link,
         # but the text part does. However, we'll just provide a hardcoded text.
         # Format: [Apply Here](URL)
-        # Note: the url itself doesn't need its characters escaped in the MarkdownV2 format [text](url)
+        # Note: the url itself doesn't need escaping in MarkdownV2
+        # format [text](url)
         # However, some Telegram clients are buggy if the URL has unescaped parentheses,
         # but standard URL characters are usually fine. We'll leave the url raw inside the ().
         message += f"[Apply Here / View Details]({str(job.link)})"

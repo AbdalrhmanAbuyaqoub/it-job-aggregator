@@ -1,11 +1,12 @@
 import asyncio
 import logging
-from it_job_aggregator.scrapers.telegram_scraper import TelegramScraper
+
+from it_job_aggregator.bot import send_job_posting
+from it_job_aggregator.config import TARGET_CHANNELS
 from it_job_aggregator.db import Database
 from it_job_aggregator.filters import JobFilter
 from it_job_aggregator.formatter import JobFormatter
-from it_job_aggregator.bot import send_job_posting
-from it_job_aggregator.config import TARGET_CHANNELS
+from it_job_aggregator.scrapers.telegram_scraper import TelegramScraper
 
 # Set up logging once, in the application entry point only
 logging.basicConfig(
@@ -35,9 +36,7 @@ async def run_pipeline():
 
             logger.info(f"Scraping jobs from: {target_channel}")
             scraped_jobs = await scraper.scrape()
-            logger.info(
-                f"Scraped {len(scraped_jobs)} raw messages from {target_channel}."
-            )
+            logger.info(f"Scraped {len(scraped_jobs)} raw messages from {target_channel}.")
             total_scraped += len(scraped_jobs)
 
             for job in scraped_jobs:

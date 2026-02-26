@@ -1,4 +1,3 @@
-import pytest
 from it_job_aggregator.formatter import JobFormatter
 from it_job_aggregator.models import Job
 
@@ -12,7 +11,6 @@ def test_escape_markdown_basic():
 def test_escape_markdown_all_chars():
     text = r"_*[]()~`>#+-=|{}.!"
     escaped = JobFormatter.escape_markdown(text)
-    expected = r"\_ \*\ \[\ \]\ \(\ \)\ \~\ \` \> \# \+ \- \= \| \{ \} \. \!"
     # The actual result will have backslashes before each:
     actual_expected = r"\_\*\[\]\(\)\~\`\>\#\+\-\=\|\{\}\.\!"
     assert escaped == actual_expected
@@ -125,10 +123,10 @@ def test_format_job_with_empty_description():
     # Should NOT have an extra paragraph between source and link
     lines = formatted.split("\n")
     # Find the source line and the link line — nothing in between except blank line
-    source_idx = next(i for i, l in enumerate(lines) if "*Source:*" in l)
-    link_idx = next(i for i, l in enumerate(lines) if "Apply Here" in l)
+    source_idx = next(i for i, line in enumerate(lines) if "*Source:*" in line)
+    link_idx = next(i for i, line in enumerate(lines) if "Apply Here" in line)
     # Between source and link, there should only be empty lines
-    between = [l for l in lines[source_idx + 1 : link_idx] if l.strip()]
+    between = [line for line in lines[source_idx + 1 : link_idx] if line.strip()]
     assert between == []
 
 

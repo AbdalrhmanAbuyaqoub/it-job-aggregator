@@ -1,4 +1,3 @@
-from typing import Optional
 from pydantic import BaseModel, HttpUrl
 
 
@@ -9,7 +8,7 @@ class Job(BaseModel):
     """
 
     title: str
-    company: Optional[str] = None
+    company: str | None = None
     link: HttpUrl
     description: str
     source: str

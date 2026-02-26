@@ -1,9 +1,9 @@
+import asyncio
+import logging
+from urllib.parse import urlparse
+
 import httpx
 from bs4 import BeautifulSoup
-from typing import List
-from urllib.parse import urlparse
-import logging
-import asyncio
 
 from it_job_aggregator.models import Job
 from it_job_aggregator.scrapers.base import BaseScraper
@@ -34,8 +34,8 @@ class TelegramScraper(BaseScraper):
         self,
         max_retries: int = MAX_RETRIES,
         initial_backoff: float = INITIAL_BACKOFF,
-    ) -> List[Job]:
-        jobs: List[Job] = []
+    ) -> list[Job]:
+        jobs: list[Job] = []
 
         for attempt in range(1, max_retries + 1):
             try:
@@ -154,7 +154,9 @@ class TelegramScraper(BaseScraper):
         try:
             return Job(
                 title=raw_title,
-                company=None,  # Extracting company reliably requires NLP or strict formatting, leaving None for now
+                # Extracting company reliably requires NLP or strict
+                # formatting, leaving None for now
+                company=None,
                 link=job_link,
                 description=full_text,
                 source=self.source_name,

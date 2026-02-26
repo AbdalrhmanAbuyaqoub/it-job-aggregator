@@ -1,4 +1,3 @@
-import os
 import pytest
 
 # NOTE: conftest.py already sets TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID,

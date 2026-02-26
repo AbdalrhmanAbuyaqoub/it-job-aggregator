@@ -1,7 +1,8 @@
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
-from it_job_aggregator.models import Job
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from it_job_aggregator.models import Job
 
 # --- Fixtures ---
 
@@ -41,9 +42,7 @@ async def test_run_pipeline_end_to_end():
         patch("it_job_aggregator.main.Database") as mock_db_class,
         patch("it_job_aggregator.main.JobFilter") as mock_filter_class,
         patch("it_job_aggregator.main.JobFormatter") as mock_formatter_class,
-        patch(
-            "it_job_aggregator.main.send_job_posting", new_callable=AsyncMock
-        ) as mock_send,
+        patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
         patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
         patch("it_job_aggregator.main.TARGET_CHANNELS", ["test_channel"]),
     ):
@@ -97,9 +96,7 @@ async def test_run_pipeline_all_duplicates():
         patch("it_job_aggregator.main.Database") as mock_db_class,
         patch("it_job_aggregator.main.JobFilter") as mock_filter_class,
         patch("it_job_aggregator.main.JobFormatter") as mock_formatter_class,
-        patch(
-            "it_job_aggregator.main.send_job_posting", new_callable=AsyncMock
-        ) as mock_send,
+        patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
         patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
         patch("it_job_aggregator.main.TARGET_CHANNELS", ["test_channel"]),
     ):
@@ -132,9 +129,7 @@ async def test_run_pipeline_no_jobs_scraped():
         patch("it_job_aggregator.main.TelegramScraper") as mock_scraper_class,
         patch("it_job_aggregator.main.Database") as mock_db_class,
         patch("it_job_aggregator.main.JobFilter") as mock_filter_class,
-        patch(
-            "it_job_aggregator.main.send_job_posting", new_callable=AsyncMock
-        ) as mock_send,
+        patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
         patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
         patch("it_job_aggregator.main.TARGET_CHANNELS", ["test_channel"]),
     ):
@@ -180,9 +175,7 @@ async def test_run_pipeline_send_failure_continues():
         patch("it_job_aggregator.main.Database") as mock_db_class,
         patch("it_job_aggregator.main.JobFilter") as mock_filter_class,
         patch("it_job_aggregator.main.JobFormatter") as mock_formatter_class,
-        patch(
-            "it_job_aggregator.main.send_job_posting", new_callable=AsyncMock
-        ) as mock_send,
+        patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
         patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
         patch("it_job_aggregator.main.TARGET_CHANNELS", ["test_channel"]),
     ):
@@ -222,10 +215,8 @@ async def test_run_pipeline_multiple_channels():
         patch("it_job_aggregator.main.TelegramScraper") as mock_scraper_class,
         patch("it_job_aggregator.main.Database") as mock_db_class,
         patch("it_job_aggregator.main.JobFilter") as mock_filter_class,
-        patch("it_job_aggregator.main.JobFormatter") as mock_formatter_class,
-        patch(
-            "it_job_aggregator.main.send_job_posting", new_callable=AsyncMock
-        ) as mock_send,
+        patch("it_job_aggregator.main.JobFormatter"),
+        patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock),
         patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
         patch(
             "it_job_aggregator.main.TARGET_CHANNELS",

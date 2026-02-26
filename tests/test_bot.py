@@ -1,5 +1,7 @@
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
+
 from it_job_aggregator.bot import send_job_posting
 
 
@@ -18,8 +20,9 @@ async def test_send_job_posting_success():
 
         mock_bot_class.assert_called_once_with(token=TELEGRAM_BOT_TOKEN)
 
-        from it_job_aggregator.config import TELEGRAM_CHANNEL_ID
         from telegram.constants import ParseMode
+
+        from it_job_aggregator.config import TELEGRAM_CHANNEL_ID
 
         mock_bot_instance.send_message.assert_awaited_once_with(
             chat_id=TELEGRAM_CHANNEL_ID,
@@ -60,9 +63,7 @@ async def test_send_job_posting_succeeds_on_retry():
         ]
         mock_bot_class.return_value = mock_bot_instance
 
-        with patch(
-            "it_job_aggregator.bot.asyncio.sleep", new_callable=AsyncMock
-        ) as mock_sleep:
+        with patch("it_job_aggregator.bot.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await send_job_posting(test_message, max_retries=3, initial_backoff=2)
 
         # Should have been called twice
@@ -86,9 +87,7 @@ async def test_send_job_posting_exponential_backoff():
         ]
         mock_bot_class.return_value = mock_bot_instance
 
-        with patch(
-            "it_job_aggregator.bot.asyncio.sleep", new_callable=AsyncMock
-        ) as mock_sleep:
+        with patch("it_job_aggregator.bot.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await send_job_posting(test_message, max_retries=3, initial_backoff=2)
 
         assert mock_bot_instance.send_message.await_count == 3
@@ -108,9 +107,7 @@ async def test_send_job_posting_single_attempt_no_retry():
         mock_bot_instance.send_message.side_effect = Exception("API Error")
         mock_bot_class.return_value = mock_bot_instance
 
-        with patch(
-            "it_job_aggregator.bot.asyncio.sleep", new_callable=AsyncMock
-        ) as mock_sleep:
+        with patch("it_job_aggregator.bot.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             with pytest.raises(Exception, match="API Error"):
                 await send_job_posting(test_message, max_retries=1, initial_backoff=0)
 

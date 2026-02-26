@@ -1,7 +1,9 @@
 import asyncio
 import logging
+
 from telegram import Bot
 from telegram.constants import ParseMode
+
 from it_job_aggregator.config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID
 
 logger = logging.getLogger(__name__)
@@ -34,14 +36,11 @@ async def send_job_posting(
             return
         except Exception as e:
             if attempt == max_retries:
-                logger.error(
-                    f"Failed to send message after {max_retries} attempts: {e}"
-                )
+                logger.error(f"Failed to send message after {max_retries} attempts: {e}")
                 raise
             backoff = initial_backoff * (2 ** (attempt - 1))
             logger.warning(
-                f"Attempt {attempt}/{max_retries} failed: {e}. "
-                f"Retrying in {backoff}s..."
+                f"Attempt {attempt}/{max_retries} failed: {e}. Retrying in {backoff}s..."
             )
             await asyncio.sleep(backoff)
 

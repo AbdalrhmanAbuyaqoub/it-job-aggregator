@@ -1,47 +1,136 @@
 # IT Job Aggregator Bot - Project Plan
 
 ## Project Overview
-A Python bot that scrapes IT job listings from multiple sources (LinkedIn, Indeed, Glassdoor, Telegram channels, company career pages), filters them by keywords and seniority level, removes duplicates, and posts them to a Telegram channel.
+A Python bot that scrapes IT job listings from public Telegram channels (starting with
+`jobspsco` — a Palestinian job board), filters them by Arabic and English IT keywords,
+removes duplicates via SQLite, and posts new matches to `@palestineitjobs`.
 
-**Core Focus:** Demonstrating QA/SDET skills (Test Pyramid, CI/CD, production-grade testing practices).
+**Core Focus:** Demonstrating QA/SDET skills (test pyramid, CI/CD, production-grade testing).
 
 ## Tech Stack
-- **Language:** Python 3.11+
-- **Dependency Management & Tooling:** `uv`
+- **Language:** Python 3.12 (requires >= 3.11)
+- **Dependency Management:** `uv`
 - **Bot Framework:** `python-telegram-bot` (async)
-- **Testing:** `pytest`, `pytest-asyncio`, `unittest.mock`
-- **Data Storage:** SQLite (for deduplication - Phase 2+)
-- **Deployment:** Docker (Phase 3+)
+- **HTTP Client:** `httpx` (async)
+- **HTML Parsing:** `beautifulsoup4`
+- **Data Validation:** `pydantic` (Job model with `HttpUrl`)
+- **Data Storage:** `sqlite3` (standard library, link-based deduplication)
+- **Config:** `python-dotenv` + lazy PEP 562 `__getattr__` loading
+- **Testing:** `pytest`, `pytest-asyncio`, `pytest-httpx`, `unittest.mock`
+- **Build System:** `hatchling` (src-layout)
+- **Deployment:** Docker + GitHub Actions (Phase 4 — not yet implemented)
 
 ---
 
-## Phase 1: Foundation & Basic Bot
-**Goal:** Set up the project structure following modern best practices and create a working Telegram bot capable of posting messages to a channel.
+## Phase 1: Foundation & Basic Bot ✅
+**Goal:** Project structure, config, Telegram bot capable of posting messages.
 
-### Steps Completed:
-1. **Initialize Project:** Scaffolded the project structure using `uv`.
-2. **Add Dependencies:** Added `python-telegram-bot`, `python-dotenv`, `pytest`, `pytest-asyncio`.
-3. **Environment Configuration:** Created `.env.example` and `config.py` for environment variables.
-4. **Core Bot Logic:** Created `bot.py` to send async messages to a Telegram channel.
-5. **Testing:** Created unit tests in `test_bot.py` using `pytest` and `unittest.mock`.
-6. **Documentation:** Created this plan and the `README.md`.
+### Completed:
+- Scaffolded src-layout project with `uv` and `hatchling` build system
+- CLI entry point: `uv run it-job-aggregator`
+- `config.py` with lazy loading (PEP 562 `__getattr__`) — import doesn't crash without env vars
+- `bot.py` with async message sending and exponential backoff retry logic
+- `models.py` with Pydantic `Job` model (`HttpUrl` for links)
+- `.env.example`, `.gitignore` (excludes `.env`, `*.db`, cache dirs)
+- Unit tests for bot (success, retries, backoff, single attempt)
 
 ---
 
-## Future Phases (High-Level)
+## Phase 2: Scraping & Deduplication ✅
+**Goal:** Scrape job listings from Telegram channels, store in SQLite to prevent re-posting.
 
-### Phase 2: Scraping & Deduplication
-- Implement scrapers for initial sources (e.g., specific Telegram channels or an easy web source).
-- Set up SQLite database for storing seen jobs.
-- Implement deduplication logic based on job title, company, and link.
-- **Testing Focus:** Integration tests with a test SQLite database, unit tests for parsing logic.
+### Completed:
+- `TelegramScraper` — scrapes `t.me/s/<channel>` web preview HTML
+  - Configurable target channels via `TARGET_CHANNELS` env var
+  - HTTP timeout (15s), User-Agent header, retry with exponential backoff
+  - Channel name normalization (`@channel`, `t.me/channel`, bare name)
+  - False-positive link filtering (`VB.NET`, `ASP.NET`, `ADO.NET` auto-linked by Telegram)
+  - Fallback to message permalink when no valid external link found
+  - `removeprefix("www.")` (not `lstrip`)
+- `BaseScraper` ABC for future scraper implementations
+- `Database` class — single persistent `sqlite3` connection, context manager, `close()`
+  - Deduplication via `UNIQUE` constraint on `link` column
+  - `created_at` auto-timestamp
+- Tests: scraper parsing, HTTP errors, retries, false-positive links, empty pages,
+  DB save/duplicate/context manager/close/timestamp
 
-### Phase 3: Filtering & Formatting
-- Implement keyword and seniority level filtering.
-- Create a standard Markdown template for Telegram messages.
-- **Testing Focus:** Unit tests for filtering logic and message formatting.
+---
 
-### Phase 4: CI/CD & Deployment
-- Dockerize the application.
-- Set up GitHub Actions for running `pytest`, linting (`ruff`), and type checking (`mypy`) on every push.
-- **Testing Focus:** E2E testing (running the bot in a containerized environment).
+## Phase 3: Filtering & Formatting ✅
+**Goal:** Identify IT jobs from raw scraped messages, format for Telegram posting.
+
+### Completed:
+- `JobFilter` — regex-based keyword matching (not LLM — deterministic and testable)
+  - 30 English keywords (developer, engineer, qa, sdet, devops, cloud, aws, docker, etc.)
+  - 13 Arabic keywords (مطور, مبرمج, برمجيات, هندسة, تكنولوجيا, etc.)
+  - Unicode NFKD normalization for stylized text (𝗗𝗲𝘃𝗲𝗹𝗼𝗽𝗲𝗿 → Developer)
+  - Word boundary matching for English; substring matching for Arabic
+  - Avoided `"it"` keyword (massive false positives) — uses `"information technology"` instead
+- `JobFormatter` — Telegram MarkdownV2 formatting
+  - Escapes all required special characters (`_*[]()~\`>#+-=|{}.!\\`)
+  - Description snippet (first 200 chars, truncated at word boundary)
+  - Conditional company display
+- `main.py` pipeline orchestrator — scrape → filter → deduplicate → format → send
+  - Detailed logging counters (scraped, filtered, duplicates, posted, failed)
+  - Graceful error handling (one failed send doesn't stop the pipeline)
+- Tests: 36 parametrized filter cases (Arabic, English, Unicode, false positives, edge cases),
+  formatter escaping/truncation/edge cases, full pipeline integration tests
+
+### Current Test Coverage: **108 tests across 9 files, all passing**
+| File | Tests | What's covered |
+|------|-------|----------------|
+| test_bot.py | 7 | Success, retries, backoff, empty/long messages |
+| test_config.py | 11 | Lazy loading, missing env vars, comma parsing, defaults |
+| test_db.py | 9 | CRUD, duplicates, context manager, close, timestamps |
+| test_filters.py | 36 | English/Arabic/Unicode keywords, false positives, edge cases |
+| test_formatter.py | 11 | Escaping, description truncation, edge cases |
+| test_main.py | 5 | Pipeline integration (end-to-end, duplicates, failures, multi-channel) |
+| test_models.py | 12 | Validation, required fields, URL handling |
+| test_scrapers.py | 13 | Parsing, HTTP errors, retries, false links, normalization |
+| conftest.py | — | Shared fixtures, env var setup |
+
+---
+
+## Phase 4: CI/CD & Deployment (Next)
+**Goal:** Automated quality gates, containerized deployment, linting, type checking.
+
+### Tasks:
+1. **Linting with ruff**
+   - Add `ruff` to dev dependencies
+   - Configure rules in `pyproject.toml` (select, ignore, line-length)
+   - Fix any existing violations
+   - Enforce double quotes, import ordering, unused imports
+
+2. **Type checking with mypy**
+   - Add `mypy` to dev dependencies
+   - Configure `mypy` in `pyproject.toml` (strict mode or incremental)
+   - Add type stubs if needed (`types-beautifulsoup4`)
+   - Fix type errors (e.g., `HttpUrl` vs `str` in scraper)
+
+3. **GitHub Actions CI pipeline**
+   - Run on push/PR to `main`
+   - Steps: install with `uv`, run `ruff check`, run `mypy`, run `pytest`
+   - Fail fast on any step failure
+   - Badge in README
+
+4. **Dockerize**
+   - `Dockerfile` based on `python:3.12-slim`
+   - Install `uv`, sync deps, copy source
+   - Entry point: `uv run it-job-aggregator`
+   - `.dockerignore` for `.env`, `*.db`, `.venv`, etc.
+   - `docker-compose.yml` for easy local deployment with `.env` mount
+
+5. **README update**
+   - Remove old PYTHONPATH references
+   - Add CI badge, Docker usage, test count
+   - Architecture diagram or description
+
+---
+
+## Future Ideas (Beyond Phase 4)
+- Additional scraper sources (other Telegram channels, job boards)
+- Scheduled/loop execution (cron or `asyncio` loop with configurable interval)
+- Job categorization (frontend, backend, QA, DevOps, etc.)
+- Duplicate detection improvements (fuzzy matching on title + company, not just link)
+- Admin commands via Telegram bot (pause, resume, add channel)
+- Metrics/stats endpoint (jobs posted per day, top keywords)

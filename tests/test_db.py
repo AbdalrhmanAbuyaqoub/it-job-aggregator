@@ -1,5 +1,5 @@
 import pytest
-import sqlite3
+
 from it_job_aggregator.db import Database
 from it_job_aggregator.models import Job
 

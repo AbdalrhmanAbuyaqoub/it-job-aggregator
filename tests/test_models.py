@@ -1,5 +1,6 @@
 import pytest
 from pydantic import ValidationError
+
 from it_job_aggregator.models import Job
 
 
@@ -89,7 +90,7 @@ def test_url_with_path_and_query():
 
 
 def test_empty_title_raises_error():
-    """Test that an empty string for a required field does not raise (Pydantic allows it by default)."""
+    """Test that empty string for required field does not raise."""
     # Pydantic does not reject empty strings for `str` fields unless a validator is added.
     # This test documents current behavior.
     job = Job(
