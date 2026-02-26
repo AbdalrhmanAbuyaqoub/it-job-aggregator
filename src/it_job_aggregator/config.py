@@ -39,20 +39,23 @@ class _Config:
     @property
     def TELEGRAM_BOT_TOKEN(self) -> str:
         self._load()
-        assert self._config is not None
+        if self._config is None:
+            raise RuntimeError("Config failed to load")
         return self._config["TELEGRAM_BOT_TOKEN"]
 
     @property
     def TELEGRAM_CHANNEL_ID(self) -> str:
         self._load()
-        assert self._config is not None
+        if self._config is None:
+            raise RuntimeError("Config failed to load")
         return self._config["TELEGRAM_CHANNEL_ID"]
 
     @property
     def TARGET_CHANNELS(self) -> list[str]:
         """Comma-separated list of Telegram channel names to scrape."""
         self._load()
-        assert self._config is not None
+        if self._config is None:
+            raise RuntimeError("Config failed to load")
         raw = self._config["TARGET_CHANNELS"]
         return [ch.strip() for ch in raw.split(",") if ch.strip()]
 

@@ -22,7 +22,8 @@ class Database:
     @property
     def connection(self) -> sqlite3.Connection:
         """Return the persistent database connection."""
-        assert self._conn is not None, "Database connection is closed"
+        if self._conn is None:
+            raise RuntimeError("Database connection is closed")
         return self._conn
 
     def init_db(self) -> None:
