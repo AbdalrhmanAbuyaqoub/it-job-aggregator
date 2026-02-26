@@ -24,10 +24,12 @@ packages = ["src/it_job_aggregator"]
 
 [dependency-groups]
 dev = [
+    "mypy>=1.19.1",
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "pytest-httpx>=0.36.0",
     "ruff>=0.15.4",
+    "types-beautifulsoup4>=4.12.0.20250516",
 ]
 
 [tool.ruff]
@@ -54,3 +56,17 @@ known-first-party = ["it_job_aggregator"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+packages = ["it_job_aggregator"]
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true

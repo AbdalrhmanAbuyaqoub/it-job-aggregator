@@ -3,7 +3,8 @@ import logging
 from urllib.parse import urlparse
 
 import httpx
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
+from pydantic import HttpUrl
 
 from it_job_aggregator.models import Job
 from it_job_aggregator.scrapers.base import BaseScraper
@@ -104,18 +105,18 @@ class TelegramScraper(BaseScraper):
         except Exception:
             return True
 
-    def _find_best_link(self, message_div) -> str | None:
+    def _find_best_link(self, message_div: Tag) -> str | None:
         """
         Find the best job application link from a message.
         Prefers actual job board URLs over auto-linked false positives.
         Falls back to the Telegram message permalink.
         """
         all_links = message_div.find_all("a")
-        valid_links = []
+        valid_links: list[str] = []
 
         for link_tag in all_links:
             href = link_tag.get("href", "")
-            if href and self._is_valid_job_link(href):
+            if isinstance(href, str) and href and self._is_valid_job_link(href):
                 valid_links.append(href)
 
         if valid_links:
@@ -128,7 +129,7 @@ class TelegramScraper(BaseScraper):
 
         return None
 
-    def _parse_message(self, message_div) -> Job | None:
+    def _parse_message(self, message_div: Tag) -> Job | None:
         """
         Extracts job details from a Telegram message HTML div.
         Returns a Job model if it looks like a valid job, else None.
@@ -157,7 +158,7 @@ class TelegramScraper(BaseScraper):
                 # Extracting company reliably requires NLP or strict
                 # formatting, leaving None for now
                 company=None,
-                link=job_link,
+                link=HttpUrl(job_link),
                 description=full_text,
                 source=self.source_name,
             )

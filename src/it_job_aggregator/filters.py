@@ -62,7 +62,7 @@ class JobFilter:
         "تطبيقات",
     ]
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Compile a regex pattern that matches any of the keywords as whole words
         # For English, we use \b for word boundaries.
         eng_pattern = r"\b(?:" + "|".join(re.escape(kw) for kw in self.ENGLISH_KEYWORDS) + r")\b"

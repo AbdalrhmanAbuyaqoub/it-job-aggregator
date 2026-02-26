@@ -1,5 +1,6 @@
 import logging
 import sqlite3
+from types import TracebackType
 
 from it_job_aggregator.models import Job
 
@@ -13,19 +14,20 @@ class Database:
     Supports context manager protocol for proper resource cleanup.
     """
 
-    def __init__(self, db_path: str = "jobs.db"):
+    def __init__(self, db_path: str = "jobs.db") -> None:
         self.db_path = db_path
-        self._conn = sqlite3.connect(db_path)
+        self._conn: sqlite3.Connection | None = sqlite3.connect(db_path)
         self.init_db()
 
     @property
     def connection(self) -> sqlite3.Connection:
         """Return the persistent database connection."""
+        assert self._conn is not None, "Database connection is closed"
         return self._conn
 
-    def init_db(self):
+    def init_db(self) -> None:
         """Create the jobs table if it doesn't exist."""
-        cursor = self._conn.cursor()
+        cursor = self.connection.cursor()
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,7 +39,7 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        self._conn.commit()
+        self.connection.commit()
         logger.info(f"Database initialized at {self.db_path}")
 
     def save_job(self, job: Job) -> bool:
@@ -46,7 +48,7 @@ class Database:
         Returns True if saved successfully, False if it was a duplicate (based on the link).
         """
         try:
-            cursor = self._conn.cursor()
+            cursor = self.connection.cursor()
             cursor.execute(
                 """
                 INSERT INTO jobs (title, company, link, description, source)
@@ -60,7 +62,7 @@ class Database:
                     job.source,
                 ),
             )
-            self._conn.commit()
+            self.connection.commit()
             return True
         except sqlite3.IntegrityError:
             # The link already exists in the database
@@ -70,15 +72,19 @@ class Database:
             logger.error(f"Error saving job {job.link}: {e}")
             raise
 
-    def close(self):
+    def close(self) -> None:
         """Close the database connection."""
         if self._conn:
             self._conn.close()
             self._conn = None
 
-    def __enter__(self):
+    def __enter__(self) -> "Database":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         self.close()
-        return False

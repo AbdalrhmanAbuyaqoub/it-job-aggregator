@@ -45,7 +45,7 @@ async def send_job_posting(
             await asyncio.sleep(backoff)
 
 
-async def main():
+async def main() -> None:
     """
     Main entry point for testing the bot manually.
     """

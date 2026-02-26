@@ -15,7 +15,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def run_pipeline():
+async def run_pipeline() -> None:
     logger.info("Starting IT Job Aggregator Pipeline...")
 
     # Initialize components
@@ -76,7 +76,7 @@ async def run_pipeline():
     )
 
 
-def cli():
+def cli() -> None:
     """CLI entry point for the package."""
     asyncio.run(run_pipeline())
 
