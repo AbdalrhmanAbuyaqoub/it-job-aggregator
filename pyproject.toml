@@ -1,0 +1,34 @@
+[project]
+name = "it-job-aggregator"
+version = "0.1.0"
+description = "Telegram bot that scrapes IT job listings, filters by keywords, deduplicates, and posts to a channel"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4>=4.14.3",
+    "httpx>=0.28.1",
+    "pydantic>=2.12.5",
+    "python-dotenv>=1.2.1",
+    "python-telegram-bot>=22.6",
+]
+
+[project.scripts]
+it-job-aggregator = "it_job_aggregator.main:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/it_job_aggregator"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "pytest-httpx>=0.36.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+asyncio_mode = "auto"
