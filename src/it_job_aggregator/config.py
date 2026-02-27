@@ -23,6 +23,7 @@ def get_config() -> dict[str, str]:
         "TELEGRAM_BOT_TOKEN": token,
         "TELEGRAM_CHANNEL_ID": channel_id,
         "TARGET_CHANNELS": os.getenv("TARGET_CHANNELS", "jobspsco"),
+        "SCRAPE_INTERVAL": os.getenv("SCRAPE_INTERVAL", "30"),
     }
 
 
@@ -59,6 +60,21 @@ class _Config:
         raw = self._config["TARGET_CHANNELS"]
         return [ch.strip() for ch in raw.split(",") if ch.strip()]
 
+    @property
+    def SCRAPE_INTERVAL(self) -> int:
+        """Scrape interval in minutes. Must be a positive integer."""
+        self._load()
+        if self._config is None:
+            raise RuntimeError("Config failed to load")
+        raw = self._config["SCRAPE_INTERVAL"]
+        try:
+            interval = int(raw)
+        except ValueError:
+            raise ValueError(f"SCRAPE_INTERVAL must be a positive integer, got '{raw}'") from None
+        if interval <= 0:
+            raise ValueError(f"SCRAPE_INTERVAL must be a positive integer, got {interval}")
+        return interval
+
 
 _cfg = _Config()
 
@@ -68,16 +84,19 @@ _cfg = _Config()
 TELEGRAM_BOT_TOKEN: str
 TELEGRAM_CHANNEL_ID: str
 TARGET_CHANNELS: list[str]
+SCRAPE_INTERVAL: int
 
 
 # Module-level lazy access using __getattr__ (PEP 562).
 # Modules can still do `from it_job_aggregator.config import TELEGRAM_BOT_TOKEN`
 # but the value is only resolved when first accessed, not at import time.
-def __getattr__(name: str) -> str | list[str]:
+def __getattr__(name: str) -> str | list[str] | int:
     if name == "TELEGRAM_BOT_TOKEN":
         return _cfg.TELEGRAM_BOT_TOKEN
     if name == "TELEGRAM_CHANNEL_ID":
         return _cfg.TELEGRAM_CHANNEL_ID
     if name == "TARGET_CHANNELS":
         return _cfg.TARGET_CHANNELS
+    if name == "SCRAPE_INTERVAL":
+        return _cfg.SCRAPE_INTERVAL
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

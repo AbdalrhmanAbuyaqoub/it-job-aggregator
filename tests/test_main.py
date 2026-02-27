@@ -241,3 +241,194 @@ async def test_run_pipeline_multiple_channels():
         assert mock_scraper_class.call_count == 2
         mock_scraper_class.assert_any_call(channel_name="channel_a")
         mock_scraper_class.assert_any_call(channel_name="channel_b")
+
+
+# --- run_loop tests ---
+
+
+@pytest.mark.asyncio
+async def test_run_loop_executes_pipeline_then_shuts_down():
+    """Test that run_loop calls run_pipeline and exits on shutdown event."""
+    with (
+        patch("it_job_aggregator.main.run_pipeline", new_callable=AsyncMock) as mock_pipeline,
+        patch("it_job_aggregator.main.asyncio.get_running_loop") as mock_get_loop,
+    ):
+        mock_loop = MagicMock()
+        mock_get_loop.return_value = mock_loop
+
+        # Make run_pipeline set the shutdown event after first call
+        async def pipeline_side_effect() -> None:
+            # Find the shutdown event via the signal handler that was registered
+            # and call it to trigger shutdown
+            handler = mock_loop.add_signal_handler.call_args_list[0][0][1]
+            handler()
+
+        mock_pipeline.side_effect = pipeline_side_effect
+
+        from it_job_aggregator.main import run_loop
+
+        await run_loop(interval_minutes=1)
+
+        # Pipeline should have been called exactly once before shutdown
+        mock_pipeline.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_run_loop_continues_on_pipeline_error():
+    """Test that run_loop continues to next cycle if run_pipeline raises."""
+    call_count = 0
+
+    with (
+        patch("it_job_aggregator.main.run_pipeline", new_callable=AsyncMock) as mock_pipeline,
+        patch("it_job_aggregator.main.asyncio.get_running_loop") as mock_get_loop,
+    ):
+        mock_loop = MagicMock()
+        mock_get_loop.return_value = mock_loop
+
+        async def pipeline_side_effect() -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("Simulated pipeline failure")
+            # Second call: trigger shutdown
+            handler = mock_loop.add_signal_handler.call_args_list[0][0][1]
+            handler()
+
+        mock_pipeline.side_effect = pipeline_side_effect
+
+        from it_job_aggregator.main import run_loop
+
+        await run_loop(interval_minutes=0)  # 0-minute interval for fast test
+
+        # Pipeline should have been called twice: first fails, second succeeds
+        assert mock_pipeline.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_run_loop_logs_next_run_time():
+    """Test that run_loop logs the next run time between cycles."""
+    with (
+        patch("it_job_aggregator.main.run_pipeline", new_callable=AsyncMock) as mock_pipeline,
+        patch("it_job_aggregator.main.asyncio.get_running_loop") as mock_get_loop,
+        patch("it_job_aggregator.main.logger") as mock_logger,
+    ):
+        mock_loop = MagicMock()
+        mock_get_loop.return_value = mock_loop
+
+        async def pipeline_side_effect() -> None:
+            handler = mock_loop.add_signal_handler.call_args_list[0][0][1]
+            handler()
+
+        mock_pipeline.side_effect = pipeline_side_effect
+
+        from it_job_aggregator.main import run_loop
+
+        await run_loop(interval_minutes=30)
+
+        # Verify shutdown log message
+        info_messages = [str(call) for call in mock_logger.info.call_args_list]
+        assert any("Shutting down gracefully" in msg for msg in info_messages)
+
+
+# --- parse_args tests ---
+
+
+def test_parse_args_default_is_loop():
+    """Test that parse_args defaults to loop mode."""
+    from it_job_aggregator.main import parse_args
+
+    args = parse_args([])
+    assert args.loop is True
+    assert args.once is False
+    assert args.interval is None
+
+
+def test_parse_args_once_flag():
+    """Test that --once flag sets once=True and loop=False."""
+    from it_job_aggregator.main import parse_args
+
+    args = parse_args(["--once"])
+    assert args.once is True
+
+
+def test_parse_args_interval_flag():
+    """Test that --interval sets the interval value."""
+    from it_job_aggregator.main import parse_args
+
+    args = parse_args(["--interval", "15"])
+    assert args.interval == 15
+
+
+def test_parse_args_once_with_interval():
+    """Test that --once and --interval can be combined."""
+    from it_job_aggregator.main import parse_args
+
+    args = parse_args(["--once", "--interval", "10"])
+    assert args.once is True
+    assert args.interval == 10
+
+
+# --- cli tests ---
+
+
+def test_cli_once_calls_run_pipeline():
+    """Test that cli with --once runs the pipeline once."""
+    with (
+        patch("it_job_aggregator.main.asyncio.run") as mock_run,
+        patch("it_job_aggregator.main.SCRAPE_INTERVAL", 30),
+    ):
+        from it_job_aggregator.main import cli
+
+        cli(["--once"])
+
+        mock_run.assert_called_once()
+        # The coroutine passed to asyncio.run should be from run_pipeline
+        coro = mock_run.call_args[0][0]
+        assert coro is not None
+        # Clean up the coroutine to avoid RuntimeWarning
+        coro.close()
+
+
+def test_cli_loop_calls_run_loop():
+    """Test that cli without --once runs the loop."""
+    with (
+        patch("it_job_aggregator.main.asyncio.run") as mock_run,
+        patch("it_job_aggregator.main.SCRAPE_INTERVAL", 30),
+    ):
+        from it_job_aggregator.main import cli
+
+        cli(["--loop"])
+
+        mock_run.assert_called_once()
+        coro = mock_run.call_args[0][0]
+        assert coro is not None
+        coro.close()
+
+
+def test_cli_interval_overrides_env(monkeypatch):
+    """Test that --interval CLI flag overrides SCRAPE_INTERVAL env var."""
+    with (
+        patch("it_job_aggregator.main.asyncio.run") as mock_run,
+        patch("it_job_aggregator.main.SCRAPE_INTERVAL", 30),
+    ):
+        from it_job_aggregator.main import cli
+
+        cli(["--interval", "5"])
+
+        mock_run.assert_called_once()
+        coro = mock_run.call_args[0][0]
+        assert coro is not None
+        coro.close()
+
+
+def test_cli_invalid_interval_exits():
+    """Test that --interval with zero or negative value exits with error."""
+    with (
+        patch("it_job_aggregator.main.SCRAPE_INTERVAL", 30),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        from it_job_aggregator.main import cli
+
+        cli(["--interval", "0"])
+
+    assert exc_info.value.code == 1

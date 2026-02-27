@@ -76,15 +76,15 @@ removes duplicates via SQLite, and posts new matches to `@palestineitjobs`.
 - Tests: 36 parametrized filter cases (Arabic, English, Unicode, false positives, edge cases),
   formatter escaping/truncation/edge cases, full pipeline integration tests
 
-### Current Test Coverage: **108 tests across 9 files, all passing**
+### Current Test Coverage: **124 tests across 9 files, all passing**
 | File | Tests | What's covered |
 |------|-------|----------------|
 | test_bot.py | 7 | Success, retries, backoff, empty/long messages |
-| test_config.py | 11 | Lazy loading, missing env vars, comma parsing, defaults |
+| test_config.py | 16 | Lazy loading, missing env vars, comma parsing, defaults, SCRAPE_INTERVAL |
 | test_db.py | 9 | CRUD, duplicates, context manager, close, timestamps |
 | test_filters.py | 36 | English/Arabic/Unicode keywords, false positives, edge cases |
 | test_formatter.py | 11 | Escaping, description truncation, edge cases |
-| test_main.py | 5 | Pipeline integration (end-to-end, duplicates, failures, multi-channel) |
+| test_main.py | 16 | Pipeline integration, run_loop, graceful shutdown, CLI args |
 | test_models.py | 12 | Validation, required fields, URL handling |
 | test_scrapers.py | 13 | Parsing, HTTP errors, retries, false links, normalization |
 | conftest.py | — | Shared fixtures, env var setup |
@@ -95,32 +95,39 @@ removes duplicates via SQLite, and posts new matches to `@palestineitjobs`.
 **Goal:** Automated quality gates, containerized deployment, linting, type checking.
 
 ### Tasks:
-1. **Linting with ruff**
+1. **Linting with ruff** ✅
    - Add `ruff` to dev dependencies
    - Configure rules in `pyproject.toml` (select, ignore, line-length)
    - Fix any existing violations
    - Enforce double quotes, import ordering, unused imports
 
-2. **Type checking with mypy**
+2. **Type checking with mypy** ✅
    - Add `mypy` to dev dependencies
    - Configure `mypy` in `pyproject.toml` (strict mode or incremental)
    - Add type stubs if needed (`types-beautifulsoup4`)
    - Fix type errors (e.g., `HttpUrl` vs `str` in scraper)
 
-3. **GitHub Actions CI pipeline**
+3. **GitHub Actions CI pipeline** ✅
    - Run on push/PR to `main`
    - Steps: install with `uv`, run `ruff check`, run `mypy`, run `pytest`
    - Fail fast on any step failure
    - Badge in README
 
-4. **Dockerize**
+4. **Loop execution with graceful shutdown** ✅
+   - `SCRAPE_INTERVAL` config (env var, default 30 min, validated > 0)
+   - `argparse` CLI: `--once` (single run), `--loop` (continuous, default), `--interval N` (override)
+   - `run_loop()` with `asyncio.Event` shutdown + `SIGINT`/`SIGTERM` signal handlers
+   - Pipeline errors logged but don't crash the loop
+   - 16 new tests (5 config + 11 main)
+
+5. **Dockerize** (deferred — after loop execution)
    - `Dockerfile` based on `python:3.12-slim`
    - Install `uv`, sync deps, copy source
    - Entry point: `uv run it-job-aggregator`
    - `.dockerignore` for `.env`, `*.db`, `.venv`, etc.
    - `docker-compose.yml` for easy local deployment with `.env` mount
 
-5. **README update**
+6. **README update** (deferred)
    - Remove old PYTHONPATH references
    - Add CI badge, Docker usage, test count
    - Architecture diagram or description
@@ -129,7 +136,6 @@ removes duplicates via SQLite, and posts new matches to `@palestineitjobs`.
 
 ## Future Ideas (Beyond Phase 4)
 - Additional scraper sources (other Telegram channels, job boards)
-- Scheduled/loop execution (cron or `asyncio` loop with configurable interval)
 - Job categorization (frontend, backend, QA, DevOps, etc.)
 - Duplicate detection improvements (fuzzy matching on title + company, not just link)
 - Admin commands via Telegram bot (pause, resume, add channel)

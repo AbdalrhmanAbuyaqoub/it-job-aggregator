@@ -115,3 +115,59 @@ def test_target_channels_default_when_unset(monkeypatch):
     cfg = _Config()
     channels = cfg.TARGET_CHANNELS
     assert channels == ["jobspsco"]
+
+
+# --- SCRAPE_INTERVAL tests ---
+
+
+def test_scrape_interval_default(monkeypatch):
+    """Test that SCRAPE_INTERVAL defaults to 30 when env var is not set."""
+    monkeypatch.delenv("SCRAPE_INTERVAL", raising=False)
+
+    from it_job_aggregator.config import _Config
+
+    cfg = _Config()
+    assert cfg.SCRAPE_INTERVAL == 30
+
+
+def test_scrape_interval_custom_value(monkeypatch):
+    """Test that SCRAPE_INTERVAL reads a custom integer from env var."""
+    monkeypatch.setenv("SCRAPE_INTERVAL", "15")
+
+    from it_job_aggregator.config import _Config
+
+    cfg = _Config()
+    assert cfg.SCRAPE_INTERVAL == 15
+
+
+def test_scrape_interval_zero_raises(monkeypatch):
+    """Test that SCRAPE_INTERVAL of 0 raises ValueError."""
+    monkeypatch.setenv("SCRAPE_INTERVAL", "0")
+
+    from it_job_aggregator.config import _Config
+
+    cfg = _Config()
+    with pytest.raises(ValueError, match="positive integer"):
+        _ = cfg.SCRAPE_INTERVAL
+
+
+def test_scrape_interval_negative_raises(monkeypatch):
+    """Test that a negative SCRAPE_INTERVAL raises ValueError."""
+    monkeypatch.setenv("SCRAPE_INTERVAL", "-5")
+
+    from it_job_aggregator.config import _Config
+
+    cfg = _Config()
+    with pytest.raises(ValueError, match="positive integer"):
+        _ = cfg.SCRAPE_INTERVAL
+
+
+def test_scrape_interval_non_numeric_raises(monkeypatch):
+    """Test that a non-numeric SCRAPE_INTERVAL raises ValueError."""
+    monkeypatch.setenv("SCRAPE_INTERVAL", "abc")
+
+    from it_job_aggregator.config import _Config
+
+    cfg = _Config()
+    with pytest.raises(ValueError, match="positive integer"):
+        _ = cfg.SCRAPE_INTERVAL

@@ -12,7 +12,10 @@ Package manager is **`uv`** (not pip/venv). All commands run from the project ro
 
 ```bash
 uv sync                                          # install/sync deps (creates .venv)
-uv run it-job-aggregator                         # run pipeline (CLI entry point)
+uv run it-job-aggregator                         # run in continuous loop (default)
+uv run it-job-aggregator --once                  # run pipeline once and exit
+uv run it-job-aggregator --loop                  # run in continuous loop (explicit)
+uv run it-job-aggregator --interval 15           # override interval to 15 minutes
 uv run python -m it_job_aggregator.main          # alternative
 
 uv run pytest                                    # run all tests
@@ -22,10 +25,9 @@ uv run pytest tests/test_db.py::test_save_job_success  # single test
 uv run pytest -k "test_escape_markdown"          # keyword match
 uv run pytest -s                                 # show stdout
 
-# Linting & type checking (planned — not yet configured)
-# uv run ruff check src/ tests/
-# uv run ruff format src/ tests/
-# uv run mypy src/
+uv run ruff check src/ tests/                    # lint check
+uv run ruff format src/ tests/                   # auto-format
+uv run mypy src/                                 # strict type checking
 ```
 
 ## Project Structure
@@ -50,6 +52,7 @@ tests/                       # pytest test suite (mirrors src structure)
 ├── test_scrapers.py
 ├── test_models.py
 └── test_bot.py
+└── test_main.py
 ```
 
 ## Code Style
@@ -57,7 +60,7 @@ tests/                       # pytest test suite (mirrors src structure)
 ### Formatting
 - 4-space indentation, no tabs. Max line length ~100 chars (soft).
 - **Double quotes** for all strings — no single quotes anywhere.
-- Target linter: **ruff** (not yet enforced, Phase 4).
+- Linter: **ruff** (configured in `pyproject.toml`, enforced in CI).
 
 ### Imports
 - Three groups separated by blank lines: **stdlib → third-party → local**.
@@ -89,7 +92,7 @@ tests/                       # pytest test suite (mirrors src structure)
 - Scraping and bot operations are async (`async def`, `await`).
 - Use `httpx.AsyncClient` for HTTP (not `requests`).
 - Use `asyncio.sleep()` (never `time.sleep()` in async code).
-- Entry point: `asyncio.run(run_pipeline())` in the `cli()` function.
+- Entry point: `cli()` parses args, then `asyncio.run(run_pipeline())` or `asyncio.run(run_loop())`.
 
 ### Database
 - `sqlite3` standard library only (not SQLAlchemy).
