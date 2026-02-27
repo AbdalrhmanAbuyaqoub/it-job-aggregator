@@ -6,7 +6,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 
 from it_job_aggregator.bot import send_job_posting
-from it_job_aggregator.config import SCRAPE_INTERVAL, TARGET_CHANNELS
+from it_job_aggregator.config import DB_PATH, SCRAPE_INTERVAL, TARGET_CHANNELS
 from it_job_aggregator.db import Database
 from it_job_aggregator.filters import JobFilter
 from it_job_aggregator.formatter import JobFormatter
@@ -24,7 +24,7 @@ async def run_pipeline() -> None:
     logger.info("Starting IT Job Aggregator Pipeline...")
 
     # Initialize components
-    with Database() as db:
+    with Database(db_path=DB_PATH) as db:
         job_filter = JobFilter()
 
         channels = TARGET_CHANNELS

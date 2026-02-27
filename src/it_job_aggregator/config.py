@@ -24,6 +24,7 @@ def get_config() -> dict[str, str]:
         "TELEGRAM_CHANNEL_ID": channel_id,
         "TARGET_CHANNELS": os.getenv("TARGET_CHANNELS", "jobspsco"),
         "SCRAPE_INTERVAL": os.getenv("SCRAPE_INTERVAL", "30"),
+        "DB_PATH": os.getenv("DB_PATH", "jobs.db"),
     }
 
 
@@ -61,6 +62,14 @@ class _Config:
         return [ch.strip() for ch in raw.split(",") if ch.strip()]
 
     @property
+    def DB_PATH(self) -> str:
+        """Path to the SQLite database file."""
+        self._load()
+        if self._config is None:
+            raise RuntimeError("Config failed to load")
+        return self._config["DB_PATH"]
+
+    @property
     def SCRAPE_INTERVAL(self) -> int:
         """Scrape interval in minutes. Must be a positive integer."""
         self._load()
@@ -84,6 +93,7 @@ _cfg = _Config()
 TELEGRAM_BOT_TOKEN: str
 TELEGRAM_CHANNEL_ID: str
 TARGET_CHANNELS: list[str]
+DB_PATH: str
 SCRAPE_INTERVAL: int
 
 
@@ -97,6 +107,8 @@ def __getattr__(name: str) -> str | list[str] | int:
         return _cfg.TELEGRAM_CHANNEL_ID
     if name == "TARGET_CHANNELS":
         return _cfg.TARGET_CHANNELS
+    if name == "DB_PATH":
+        return _cfg.DB_PATH
     if name == "SCRAPE_INTERVAL":
         return _cfg.SCRAPE_INTERVAL
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

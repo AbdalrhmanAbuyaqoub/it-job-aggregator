@@ -1,0 +1,41 @@
+# Virtual environments
+.venv/
+
+# Environment variables (secrets)
+.env
+
+# SQLite databases (runtime data, not part of image)
+*.db
+
+# Git
+.git/
+.gitignore
+
+# Test / tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Python build artifacts
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info/
+
+# IDE / editor
+.vscode/
+.idea/
+
+# Project docs (not needed in image — except README.md, required by hatchling build)
+AGENTS.md
+plan.md
+
+# Dev/demo files
+demo_scraper.py
+jobs_demo.db
+tests/
+
+# GitHub Actions
+.github/

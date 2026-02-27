@@ -120,12 +120,14 @@ removes duplicates via SQLite, and posts new matches to `@palestineitjobs`.
    - Pipeline errors logged but don't crash the loop
    - 16 new tests (5 config + 11 main)
 
-5. **Dockerize** (deferred — after loop execution)
-   - `Dockerfile` based on `python:3.12-slim`
-   - Install `uv`, sync deps, copy source
+5. **Dockerize** ✅
+   - `Dockerfile` based on `python:3.12-slim` with multi-stage dependency caching
+   - Install `uv` via `COPY --from=ghcr.io/astral-sh/uv:latest`, sync deps with `--frozen`
+   - Non-root `appuser` for security
    - Entry point: `uv run it-job-aggregator`
-   - `.dockerignore` for `.env`, `*.db`, `.venv`, etc.
-   - `docker-compose.yml` for easy local deployment with `.env` mount
+   - `.dockerignore` for `.env`, `*.db`, `.venv`, tests, docs, caches
+   - `docker-compose.yml` with `.env` file, `unless-stopped` restart, named volume for DB persistence
+   - Added `DB_PATH` config option (env var, default `jobs.db`) for Docker volume mount
 
 6. **README update** (deferred)
    - Remove old PYTHONPATH references
@@ -134,7 +136,19 @@ removes duplicates via SQLite, and posts new matches to `@palestineitjobs`.
 
 ---
 
-## Future Ideas (Beyond Phase 4)
+## Phase 5: Manual Deployment
+**Goal:** Deploy the bot on a home server using Docker Compose.
+
+### Tasks:
+1. Copy `docker-compose.yml` and `.env` to the home server
+2. Build and start: `sudo docker compose up -d --build`
+3. Enable Docker on boot: `sudo systemctl enable docker`
+4. Update workflow: `git pull && sudo docker compose up -d --build`
+
+---
+
+## Future Ideas (Beyond Phase 5)
+- Automated deployment (GHCR + Watchtower — auto-deploy on push to main)
 - Additional scraper sources (other Telegram channels, job boards)
 - Job categorization (frontend, backend, QA, DevOps, etc.)
 - Duplicate detection improvements (fuzzy matching on title + company, not just link)
