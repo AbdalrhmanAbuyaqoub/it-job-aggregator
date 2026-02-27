@@ -129,10 +129,11 @@ removes duplicates via SQLite, and posts new matches to `@palestineitjobs`.
    - `docker-compose.yml` with `.env` file, `unless-stopped` restart, named volume for DB persistence
    - Added `DB_PATH` config option (env var, default `jobs.db`) for Docker volume mount
 
-6. **README update** (deferred)
-   - Remove old PYTHONPATH references
-   - Add CI badge, Docker usage, test count
-   - Architecture diagram or description
+6. **README update** ✅
+   - CI badge, architecture diagram, tech stack table
+   - Setup, configuration, and usage instructions (local + Docker)
+   - Test summary table (124 tests across 9 files)
+   - Code quality commands (ruff, mypy)
 
 ---
 
