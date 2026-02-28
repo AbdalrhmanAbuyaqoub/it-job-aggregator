@@ -11,22 +11,22 @@ SAMPLE_JOBS = [
         title="Software Engineer",
         company="Tech Corp",
         link="https://example.com/job/1",
-        description="We need a software engineer with Python experience.",
-        source="Telegram (@test_channel)",
-    ),
-    Job(
-        title="Marketing Manager",
-        company="Ad Corp",
-        link="https://example.com/job/2",
-        description="Looking for a marketing manager.",
-        source="Telegram (@test_channel)",
+        description="Software Engineer",
+        source="Jobs.ps",
+        position_level="Mid-Level",
+        location="Ramallah",
+        deadline="2026-03-24",
+        experience="3 Years",
+        posted_date="24, Feb",
     ),
     Job(
         title="DevOps Engineer",
         company="Cloud Co",
         link="https://example.com/job/3",
-        description="DevOps engineer needed for cloud infrastructure.",
-        source="Telegram (@test_channel)",
+        description="DevOps Engineer",
+        source="Jobs.ps",
+        location="Gaza",
+        posted_date="20, Feb",
     ),
 ]
 
@@ -36,15 +36,13 @@ SAMPLE_JOBS = [
 
 @pytest.mark.asyncio
 async def test_run_pipeline_end_to_end():
-    """Test the full pipeline: scrape -> filter -> deduplicate -> format -> send."""
+    """Test the full pipeline: scrape -> deduplicate -> format -> send."""
     with (
-        patch("it_job_aggregator.main.TelegramScraper") as mock_scraper_class,
+        patch("it_job_aggregator.main.JobsPsScraper") as mock_scraper_class,
         patch("it_job_aggregator.main.Database") as mock_db_class,
-        patch("it_job_aggregator.main.JobFilter") as mock_filter_class,
         patch("it_job_aggregator.main.JobFormatter") as mock_formatter_class,
         patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
         patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
-        patch("it_job_aggregator.main.TARGET_CHANNELS", ["test_channel"]),
     ):
         # Set up scraper mock
         mock_scraper = AsyncMock()
@@ -53,22 +51,15 @@ async def test_run_pipeline_end_to_end():
 
         # Set up database mock (context manager)
         mock_db = MagicMock()
-        # Job 1 (SW eng): IT job, new -> posted
-        # Job 2 (marketing): filtered out by JobFilter
-        # Job 3 (DevOps): IT job, new -> posted
-        mock_db.save_job.side_effect = [True, True]  # Only called for IT jobs
+        # Both jobs are new
+        mock_db.save_job.return_value = True
         mock_db_class.return_value.__enter__ = MagicMock(return_value=mock_db)
         mock_db_class.return_value.__exit__ = MagicMock(return_value=False)
-
-        # Set up filter mock — only IT jobs pass
-        mock_filter = MagicMock()
-        mock_filter.is_it_job.side_effect = [True, False, True]
-        mock_filter_class.return_value = mock_filter
 
         # Set up formatter mock
         mock_formatter_class.format_job.side_effect = [
             "Formatted Job 1",
-            "Formatted Job 3",
+            "Formatted Job 2",
         ]
 
         from it_job_aggregator.main import run_pipeline
@@ -78,13 +69,10 @@ async def test_run_pipeline_end_to_end():
         # Verify scraper was called
         mock_scraper.scrape.assert_awaited_once()
 
-        # Verify filter was called for all 3 jobs
-        assert mock_filter.is_it_job.call_count == 3
-
-        # Verify only 2 IT jobs were saved to DB
+        # Verify both jobs were saved to DB
         assert mock_db.save_job.call_count == 2
 
-        # Verify only 2 messages were sent
+        # Verify both messages were sent
         assert mock_send.await_count == 2
 
 
@@ -92,13 +80,11 @@ async def test_run_pipeline_end_to_end():
 async def test_run_pipeline_all_duplicates():
     """Test pipeline when all jobs are duplicates (already in DB)."""
     with (
-        patch("it_job_aggregator.main.TelegramScraper") as mock_scraper_class,
+        patch("it_job_aggregator.main.JobsPsScraper") as mock_scraper_class,
         patch("it_job_aggregator.main.Database") as mock_db_class,
-        patch("it_job_aggregator.main.JobFilter") as mock_filter_class,
         patch("it_job_aggregator.main.JobFormatter") as mock_formatter_class,
         patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
         patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
-        patch("it_job_aggregator.main.TARGET_CHANNELS", ["test_channel"]),
     ):
         mock_scraper = AsyncMock()
         mock_scraper.scrape.return_value = [SAMPLE_JOBS[0]]
@@ -109,15 +95,11 @@ async def test_run_pipeline_all_duplicates():
         mock_db_class.return_value.__enter__ = MagicMock(return_value=mock_db)
         mock_db_class.return_value.__exit__ = MagicMock(return_value=False)
 
-        mock_filter = MagicMock()
-        mock_filter.is_it_job.return_value = True
-        mock_filter_class.return_value = mock_filter
-
         from it_job_aggregator.main import run_pipeline
 
         await run_pipeline()
 
-        # Filter passed, but DB says duplicate — nothing should be sent
+        # DB says duplicate — nothing should be sent
         mock_send.assert_not_awaited()
         mock_formatter_class.format_job.assert_not_called()
 
@@ -126,12 +108,10 @@ async def test_run_pipeline_all_duplicates():
 async def test_run_pipeline_no_jobs_scraped():
     """Test pipeline when the scraper returns no jobs."""
     with (
-        patch("it_job_aggregator.main.TelegramScraper") as mock_scraper_class,
+        patch("it_job_aggregator.main.JobsPsScraper") as mock_scraper_class,
         patch("it_job_aggregator.main.Database") as mock_db_class,
-        patch("it_job_aggregator.main.JobFilter") as mock_filter_class,
         patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
         patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
-        patch("it_job_aggregator.main.TARGET_CHANNELS", ["test_channel"]),
     ):
         mock_scraper = AsyncMock()
         mock_scraper.scrape.return_value = []  # No jobs
@@ -141,13 +121,11 @@ async def test_run_pipeline_no_jobs_scraped():
         mock_db_class.return_value.__enter__ = MagicMock(return_value=mock_db)
         mock_db_class.return_value.__exit__ = MagicMock(return_value=False)
 
-        mock_filter_class.return_value = MagicMock()
-
         from it_job_aggregator.main import run_pipeline
 
         await run_pipeline()
 
-        # Nothing to filter, save, or send
+        # Nothing to save or send
         mock_send.assert_not_awaited()
         mock_db.save_job.assert_not_called()
 
@@ -159,25 +137,23 @@ async def test_run_pipeline_send_failure_continues():
         Job(
             title="Job A",
             link="https://example.com/a",
-            description="Engineer needed",
-            source="Telegram (@ch)",
+            description="Job A",
+            source="Jobs.ps",
         ),
         Job(
             title="Job B",
             link="https://example.com/b",
-            description="Developer wanted",
-            source="Telegram (@ch)",
+            description="Job B",
+            source="Jobs.ps",
         ),
     ]
 
     with (
-        patch("it_job_aggregator.main.TelegramScraper") as mock_scraper_class,
+        patch("it_job_aggregator.main.JobsPsScraper") as mock_scraper_class,
         patch("it_job_aggregator.main.Database") as mock_db_class,
-        patch("it_job_aggregator.main.JobFilter") as mock_filter_class,
         patch("it_job_aggregator.main.JobFormatter") as mock_formatter_class,
         patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
         patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
-        patch("it_job_aggregator.main.TARGET_CHANNELS", ["test_channel"]),
     ):
         mock_scraper = AsyncMock()
         mock_scraper.scrape.return_value = jobs
@@ -187,10 +163,6 @@ async def test_run_pipeline_send_failure_continues():
         mock_db.save_job.return_value = True  # All new
         mock_db_class.return_value.__enter__ = MagicMock(return_value=mock_db)
         mock_db_class.return_value.__exit__ = MagicMock(return_value=False)
-
-        mock_filter = MagicMock()
-        mock_filter.is_it_job.return_value = True
-        mock_filter_class.return_value = mock_filter
 
         mock_formatter_class.format_job.side_effect = [
             "Formatted A",
@@ -209,38 +181,34 @@ async def test_run_pipeline_send_failure_continues():
 
 
 @pytest.mark.asyncio
-async def test_run_pipeline_multiple_channels():
-    """Test that the pipeline scrapes from multiple configured channels."""
+async def test_run_pipeline_mixed_new_and_duplicate():
+    """Test pipeline with a mix of new and duplicate jobs."""
     with (
-        patch("it_job_aggregator.main.TelegramScraper") as mock_scraper_class,
+        patch("it_job_aggregator.main.JobsPsScraper") as mock_scraper_class,
         patch("it_job_aggregator.main.Database") as mock_db_class,
-        patch("it_job_aggregator.main.JobFilter") as mock_filter_class,
-        patch("it_job_aggregator.main.JobFormatter"),
-        patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock),
+        patch("it_job_aggregator.main.JobFormatter") as mock_formatter_class,
+        patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
         patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
-        patch(
-            "it_job_aggregator.main.TARGET_CHANNELS",
-            ["channel_a", "channel_b"],
-        ),
     ):
         mock_scraper = AsyncMock()
-        mock_scraper.scrape.return_value = []
+        mock_scraper.scrape.return_value = SAMPLE_JOBS
         mock_scraper_class.return_value = mock_scraper
 
         mock_db = MagicMock()
+        # First job is new, second is duplicate
+        mock_db.save_job.side_effect = [True, False]
         mock_db_class.return_value.__enter__ = MagicMock(return_value=mock_db)
         mock_db_class.return_value.__exit__ = MagicMock(return_value=False)
 
-        mock_filter_class.return_value = MagicMock()
+        mock_formatter_class.format_job.return_value = "Formatted Job"
 
         from it_job_aggregator.main import run_pipeline
 
         await run_pipeline()
 
-        # TelegramScraper should have been instantiated twice (once per channel)
-        assert mock_scraper_class.call_count == 2
-        mock_scraper_class.assert_any_call(channel_name="channel_a")
-        mock_scraper_class.assert_any_call(channel_name="channel_b")
+        # Only 1 job should be sent (the new one)
+        assert mock_send.await_count == 1
+        assert mock_db.save_job.call_count == 2
 
 
 # --- run_loop tests ---
@@ -432,3 +400,133 @@ def test_cli_invalid_interval_exits():
         cli(["--interval", "0"])
 
     assert exc_info.value.code == 1
+
+
+# --- Sorting tests ---
+
+
+def test_sort_jobs_by_posted_date_ascending():
+    """Test that jobs are sorted by posted_date with earliest first."""
+    from it_job_aggregator.main import sort_jobs_by_posted_date
+
+    jobs = [
+        Job(
+            title="Job C",
+            link="https://example.com/c",
+            description="Job C",
+            source="Jobs.ps",
+            posted_date="24, Feb",
+        ),
+        Job(
+            title="Job A",
+            link="https://example.com/a",
+            description="Job A",
+            source="Jobs.ps",
+            posted_date="10, Feb",
+        ),
+        Job(
+            title="Job B",
+            link="https://example.com/b",
+            description="Job B",
+            source="Jobs.ps",
+            posted_date="15, Feb",
+        ),
+    ]
+
+    sorted_jobs = sort_jobs_by_posted_date(jobs)
+
+    assert sorted_jobs[0].title == "Job A"
+    assert sorted_jobs[1].title == "Job B"
+    assert sorted_jobs[2].title == "Job C"
+
+
+def test_sort_jobs_by_posted_date_none_goes_last():
+    """Test that jobs without posted_date are placed at the end."""
+    from it_job_aggregator.main import sort_jobs_by_posted_date
+
+    jobs = [
+        Job(
+            title="No Date",
+            link="https://example.com/nodate",
+            description="No Date",
+            source="Jobs.ps",
+        ),
+        Job(
+            title="Has Date",
+            link="https://example.com/hasdate",
+            description="Has Date",
+            source="Jobs.ps",
+            posted_date="10, Feb",
+        ),
+    ]
+
+    sorted_jobs = sort_jobs_by_posted_date(jobs)
+
+    assert sorted_jobs[0].title == "Has Date"
+    assert sorted_jobs[1].title == "No Date"
+
+
+def test_sort_jobs_by_posted_date_with_explicit_year():
+    """Test sorting with mixed date formats (current year and explicit year)."""
+    from it_job_aggregator.main import sort_jobs_by_posted_date
+
+    jobs = [
+        Job(
+            title="Recent",
+            link="https://example.com/recent",
+            description="Recent",
+            source="Jobs.ps",
+            posted_date="15, Feb",
+        ),
+        Job(
+            title="Old",
+            link="https://example.com/old",
+            description="Old",
+            source="Jobs.ps",
+            posted_date="16, Nov, 2025",
+        ),
+    ]
+
+    sorted_jobs = sort_jobs_by_posted_date(jobs)
+
+    assert sorted_jobs[0].title == "Old"
+    assert sorted_jobs[1].title == "Recent"
+
+
+def test_sort_jobs_by_posted_date_empty_list():
+    """Test that sorting an empty list returns an empty list."""
+    from it_job_aggregator.main import sort_jobs_by_posted_date
+
+    assert sort_jobs_by_posted_date([]) == []
+
+
+def test_parse_posted_date_valid_short():
+    """Test parsing a short date string (day, month)."""
+    from datetime import datetime
+
+    from it_job_aggregator.main import _parse_posted_date
+
+    result = _parse_posted_date("24, Feb")
+    assert result.month == 2
+    assert result.day == 24
+    assert result.year == datetime.now().year
+
+
+def test_parse_posted_date_valid_long():
+    """Test parsing a long date string (day, month, year)."""
+    from it_job_aggregator.main import _parse_posted_date
+
+    result = _parse_posted_date("16, Nov, 2025")
+    assert result.month == 11
+    assert result.day == 16
+    assert result.year == 2025
+
+
+def test_parse_posted_date_invalid_returns_max():
+    """Test that an invalid date string returns datetime.max."""
+    from datetime import datetime
+
+    from it_job_aggregator.main import _parse_posted_date
+
+    result = _parse_posted_date("not a date")
+    assert result == datetime.max

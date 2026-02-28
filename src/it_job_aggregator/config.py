@@ -22,7 +22,6 @@ def get_config() -> dict[str, str]:
     return {
         "TELEGRAM_BOT_TOKEN": token,
         "TELEGRAM_CHANNEL_ID": channel_id,
-        "TARGET_CHANNELS": os.getenv("TARGET_CHANNELS", "jobspsco"),
         "SCRAPE_INTERVAL": os.getenv("SCRAPE_INTERVAL", "30"),
         "DB_PATH": os.getenv("DB_PATH", "jobs.db"),
     }
@@ -51,15 +50,6 @@ class _Config:
         if self._config is None:
             raise RuntimeError("Config failed to load")
         return self._config["TELEGRAM_CHANNEL_ID"]
-
-    @property
-    def TARGET_CHANNELS(self) -> list[str]:
-        """Comma-separated list of Telegram channel names to scrape."""
-        self._load()
-        if self._config is None:
-            raise RuntimeError("Config failed to load")
-        raw = self._config["TARGET_CHANNELS"]
-        return [ch.strip() for ch in raw.split(",") if ch.strip()]
 
     @property
     def DB_PATH(self) -> str:
@@ -92,7 +82,6 @@ _cfg = _Config()
 # This pattern lets `from config import TELEGRAM_BOT_TOKEN` have the correct type.
 TELEGRAM_BOT_TOKEN: str
 TELEGRAM_CHANNEL_ID: str
-TARGET_CHANNELS: list[str]
 DB_PATH: str
 SCRAPE_INTERVAL: int
 
@@ -100,13 +89,11 @@ SCRAPE_INTERVAL: int
 # Module-level lazy access using __getattr__ (PEP 562).
 # Modules can still do `from it_job_aggregator.config import TELEGRAM_BOT_TOKEN`
 # but the value is only resolved when first accessed, not at import time.
-def __getattr__(name: str) -> str | list[str] | int:
+def __getattr__(name: str) -> str | int:
     if name == "TELEGRAM_BOT_TOKEN":
         return _cfg.TELEGRAM_BOT_TOKEN
     if name == "TELEGRAM_CHANNEL_ID":
         return _cfg.TELEGRAM_CHANNEL_ID
-    if name == "TARGET_CHANNELS":
-        return _cfg.TARGET_CHANNELS
     if name == "DB_PATH":
         return _cfg.DB_PATH
     if name == "SCRAPE_INTERVAL":

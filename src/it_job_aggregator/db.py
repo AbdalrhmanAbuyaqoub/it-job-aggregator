@@ -37,11 +37,41 @@ class Database:
                 link TEXT NOT NULL UNIQUE,
                 description TEXT,
                 source TEXT NOT NULL,
+                position_level TEXT,
+                location TEXT,
+                deadline TEXT,
+                experience TEXT,
+                posted_date TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         self.connection.commit()
+
+        # Migrate existing databases: add new columns if they don't exist
+        self._migrate_add_columns()
+
         logger.info(f"Database initialized at {self.db_path}")
+
+    def _migrate_add_columns(self) -> None:
+        """Add new columns to existing databases that were created before the schema change."""
+        cursor = self.connection.cursor()
+        cursor.execute("PRAGMA table_info(jobs)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        new_columns = {
+            "position_level": "TEXT",
+            "location": "TEXT",
+            "deadline": "TEXT",
+            "experience": "TEXT",
+            "posted_date": "TEXT",
+        }
+
+        for col_name, col_type in new_columns.items():
+            if col_name not in existing_columns:
+                cursor.execute(f"ALTER TABLE jobs ADD COLUMN {col_name} {col_type}")
+                logger.info(f"Migrated database: added column '{col_name}'")
+
+        self.connection.commit()
 
     def save_job(self, job: Job) -> bool:
         """
@@ -52,8 +82,12 @@ class Database:
             cursor = self.connection.cursor()
             cursor.execute(
                 """
-                INSERT INTO jobs (title, company, link, description, source)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO jobs (
+                    title, company, link, description, source,
+                    position_level, location, deadline, experience,
+                    posted_date
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     job.title,
@@ -61,6 +95,11 @@ class Database:
                     str(job.link),  # HttpUrl must be cast to string for sqlite
                     job.description,
                     job.source,
+                    job.position_level,
+                    job.location,
+                    job.deadline,
+                    job.experience,
+                    job.posted_date,
                 ),
             )
             self.connection.commit()

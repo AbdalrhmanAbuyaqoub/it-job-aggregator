@@ -1,3 +1,3 @@
-from .telegram_scraper import TelegramScraper
+from .jobsps_scraper import JobsPsScraper
 
-__all__ = ["TelegramScraper"]
+__all__ = ["JobsPsScraper"]

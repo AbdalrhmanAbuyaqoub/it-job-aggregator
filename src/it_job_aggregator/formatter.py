@@ -25,35 +25,42 @@ class JobFormatter:
     @classmethod
     def format_job(cls, job: Job) -> str:
         """
-        Formats the job into a structured Markdown message.
+        Formats the job into a structured Markdown message with all available fields.
         """
         title = cls.escape_markdown(job.title)
         source = cls.escape_markdown(job.source)
 
         message = "🚀 *New IT Job Posting*\n\n"
-        message += f"*Title:* {title}\n"
+        message += f"*Title:* *{title}*\n\n"
 
         if job.company:
             company = cls.escape_markdown(job.company)
             message += f"*Company:* {company}\n"
 
-        message += f"*Source:* {source}\n\n"
+        if job.location:
+            location = cls.escape_markdown(job.location)
+            message += f"*Location:* {location}\n"
 
-        # Add a truncated description snippet if available
-        if job.description:
-            # Take first 200 chars, truncate at last word boundary
-            desc = job.description.strip()
-            if len(desc) > 200:
-                desc = desc[:200].rsplit(" ", 1)[0] + "..."
-            message += f"{cls.escape_markdown(desc)}\n\n"
+        if job.position_level:
+            level = cls.escape_markdown(job.position_level)
+            message += f"*Position Level:* {level}\n"
+
+        if job.experience:
+            experience = cls.escape_markdown(job.experience)
+            message += f"*Experience:* {experience}\n"
+
+        if job.deadline:
+            deadline = cls.escape_markdown(job.deadline)
+            message += f"*Deadline:* {deadline}\n"
+
+        if job.posted_date:
+            posted_date = cls.escape_markdown(job.posted_date)
+            message += f"*Posted Date:* {posted_date}\n"
+
+        message += f"*Source:* {source}\n\n"
 
         # Link URL does not need escaping inside the href part of Markdown link,
         # but the text part does. However, we'll just provide a hardcoded text.
-        # Format: [Apply Here](URL)
-        # Note: the url itself doesn't need escaping in MarkdownV2
-        # format [text](url)
-        # However, some Telegram clients are buggy if the URL has unescaped parentheses,
-        # but standard URL characters are usually fine. We'll leave the url raw inside the ().
         message += f"[Apply Here / View Details]({str(job.link)})"
 
         return message

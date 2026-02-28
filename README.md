@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/AbdalrhmanAbuyaqoub/it-job-aggregator/actions/workflows/ci.yml/badge.svg)](https://github.com/AbdalrhmanAbuyaqoub/it-job-aggregator/actions/workflows/ci.yml)
 
-A Telegram bot that scrapes IT job listings from public Telegram channels, filters by
-Arabic and English IT keywords, deduplicates via SQLite, and posts new matches to
-[@palestineitjobs](https://t.me/palestineitjobs).
+A Telegram bot that scrapes IT job listings from
+[jobs.ps](https://www.jobs.ps/en/categories/it-jobs), deduplicates via SQLite, sorts by
+posted date, and posts new matches to [@palestineitjobs](https://t.me/palestineitjobs).
 
 Built as an **SDET portfolio project** with a strong focus on test quality, CI/CD, and
 production-grade architecture.
@@ -12,19 +12,19 @@ production-grade architecture.
 ## Architecture
 
 ```
-Telegram Channels (t.me/s/<channel>)
+jobs.ps/en/categories/it-jobs
         │
         ▼
-   TelegramScraper ─── scrape HTML, extract jobs
+   JobsPsScraper ────── Playwright headless browser + BeautifulSoup parsing
         │
         ▼
-     JobFilter ──────── regex keyword matching (EN + AR + Unicode NFKD)
+   sort_jobs_by_posted_date ── earliest posted date first
         │
         ▼
      Database ────────── SQLite deduplication (link-based)
         │
         ▼
-    JobFormatter ─────── Telegram MarkdownV2 escaping + truncation
+    JobFormatter ─────── Telegram MarkdownV2 escaping + bold title
         │
         ▼
    send_job_posting ──── Telegram Bot API with exponential backoff
@@ -41,6 +41,8 @@ Telegram Channels (t.me/s/<channel>)
 | Package Manager | [uv](https://github.com/astral-sh/uv) |
 | Bot Framework | python-telegram-bot (async) |
 | HTTP Client | httpx (async) |
+| Browser Automation | Playwright (async, headless Chromium) |
+| Anti-Detection | playwright-stealth |
 | HTML Parsing | beautifulsoup4 |
 | Data Validation | Pydantic (Job model with HttpUrl) |
 | Database | sqlite3 (stdlib, link-based dedup) |
@@ -58,24 +60,22 @@ Telegram Channels (t.me/s/<channel>)
 src/it_job_aggregator/
 ├── main.py                  # Pipeline orchestrator + CLI entry point
 ├── config.py                # Lazy-loaded config via PEP 562 __getattr__
-├── models.py                # Pydantic Job model
+├── models.py                # Pydantic Job model (with posted_date)
 ├── db.py                    # SQLite deduplication database
-├── filters.py               # Keyword/regex IT job filter (EN + AR)
 ├── formatter.py             # Telegram MarkdownV2 formatter
 ├── bot.py                   # Telegram Bot API sender with retry
 └── scrapers/
     ├── base.py              # BaseScraper ABC
-    └── telegram_scraper.py  # Scrapes t.me/s/<channel> web preview
+    └── jobsps_scraper.py    # Scrapes jobs.ps with Playwright + BS4
 tests/
 ├── conftest.py              # Shared fixtures + env var setup
 ├── test_bot.py              # Bot send, retries, backoff
 ├── test_config.py           # Lazy loading, validation, defaults
-├── test_db.py               # CRUD, duplicates, context manager
-├── test_filters.py          # 36 parametrized keyword cases
-├── test_formatter.py        # Escaping, truncation, edge cases
-├── test_main.py             # Pipeline integration, loop, CLI
-├── test_models.py           # Pydantic validation
-└── test_scrapers.py         # Parsing, HTTP errors, retries
+├── test_db.py               # CRUD, duplicates, migration, schema
+├── test_formatter.py        # Escaping, bold title, posted date, field ordering
+├── test_main.py             # Pipeline integration, sorting, loop, CLI
+├── test_models.py           # Pydantic validation, optional fields
+└── test_scrapers.py         # Listing/detail parsing, pagination, retries
 ```
 
 ## Setup
@@ -105,7 +105,6 @@ Edit `.env` with your credentials:
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | Yes | Obtain from [@BotFather](https://t.me/BotFather) |
 | `TELEGRAM_CHANNEL_ID` | Yes | Channel `@username` or numeric ID. Bot must be a channel admin. |
-| `TARGET_CHANNELS` | No | Comma-separated channel names to scrape (default: `jobspsco`) |
 | `SCRAPE_INTERVAL` | No | Minutes between scrape cycles (default: `30`) |
 | `DB_PATH` | No | SQLite database file path (default: `jobs.db`) |
 
@@ -141,18 +140,17 @@ The SQLite database is persisted in a Docker named volume (`bot-data`).
 
 ## Testing
 
-124 tests across 9 files:
+124 tests across 8 files:
 
 | File | Tests | Coverage |
 |---|---|---|
 | test_bot.py | 7 | Success, retries, backoff, empty/long messages |
-| test_config.py | 16 | Lazy loading, missing env vars, comma parsing, defaults |
-| test_db.py | 9 | CRUD, duplicates, context manager, close, timestamps |
-| test_filters.py | 36 | English/Arabic/Unicode keywords, false positives, edge cases |
-| test_formatter.py | 12 | Escaping, truncation, edge cases |
-| test_main.py | 16 | Pipeline integration, run_loop, graceful shutdown, CLI |
-| test_models.py | 12 | Validation, required fields, URL handling |
-| test_scrapers.py | 16 | Parsing, HTTP errors, retries, false links, normalization |
+| test_config.py | 14 | Lazy loading, missing env vars, defaults, DB_PATH |
+| test_db.py | 12 | CRUD, duplicates, context manager, migration, schema |
+| test_formatter.py | 18 | Escaping, bold title, empty line, posted date, field ordering |
+| test_main.py | 23 | Pipeline integration, date sorting, run_loop, CLI |
+| test_models.py | 19 | Validation, required/optional fields, URL handling |
+| test_scrapers.py | 31 | Listing/detail parsing, pagination, retries, Cloudflare |
 
 ```bash
 uv run pytest              # run all tests

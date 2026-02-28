@@ -6,11 +6,11 @@ import sys
 from datetime import UTC, datetime, timedelta
 
 from it_job_aggregator.bot import send_job_posting
-from it_job_aggregator.config import DB_PATH, SCRAPE_INTERVAL, TARGET_CHANNELS
+from it_job_aggregator.config import DB_PATH, SCRAPE_INTERVAL
 from it_job_aggregator.db import Database
-from it_job_aggregator.filters import JobFilter
 from it_job_aggregator.formatter import JobFormatter
-from it_job_aggregator.scrapers.telegram_scraper import TelegramScraper
+from it_job_aggregator.models import Job
+from it_job_aggregator.scrapers.jobsps_scraper import JobsPsScraper
 
 # Set up logging once, in the application entry point only
 logging.basicConfig(
@@ -19,62 +19,78 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _parse_posted_date(date_str: str) -> datetime:
+    """
+    Parse a posted_date string into a datetime for sorting.
+    Formats: "24, Feb" (current year) or "16, Nov, 2025" (explicit year).
+    Returns datetime.max if parsing fails, pushing unparseable dates to the end.
+    """
+    parts = [p.strip() for p in date_str.split(",")]
+    try:
+        if len(parts) == 3:
+            return datetime.strptime(f"{parts[0]} {parts[1]} {parts[2]}", "%d %b %Y")
+        elif len(parts) == 2:
+            current_year = datetime.now().year
+            return datetime.strptime(f"{parts[0]} {parts[1]} {current_year}", "%d %b %Y")
+    except ValueError:
+        pass
+    return datetime.max
+
+
+def sort_jobs_by_posted_date(jobs: list[Job]) -> list[Job]:
+    """
+    Sort jobs by posted_date ascending (earliest first).
+    Jobs without a posted_date are placed at the end.
+    """
+    return sorted(
+        jobs, key=lambda j: _parse_posted_date(j.posted_date) if j.posted_date else datetime.max
+    )
+
+
 async def run_pipeline() -> None:
-    """Run a single scrape-filter-deduplicate-format-send cycle."""
+    """Run a single scrape-deduplicate-format-send cycle."""
     logger.info("Starting IT Job Aggregator Pipeline...")
 
     # Initialize components
     with Database(db_path=DB_PATH) as db:
-        job_filter = JobFilter()
+        scraper = JobsPsScraper()
 
-        channels = TARGET_CHANNELS
-        logger.info(f"Target channels: {channels}")
+        logger.info("Scraping IT jobs from jobs.ps...")
+        scraped_jobs = await scraper.scrape()
+        logger.info(f"Scraped {len(scraped_jobs)} jobs from jobs.ps.")
 
-        total_scraped = 0
-        total_filtered = 0
+        # Sort by posted date ascending (earliest first)
+        scraped_jobs = sort_jobs_by_posted_date(scraped_jobs)
+
+        total_scraped = len(scraped_jobs)
         total_duplicates = 0
         total_posted = 0
         total_failed = 0
 
-        for target_channel in channels:
-            scraper = TelegramScraper(channel_name=target_channel)
+        for job in scraped_jobs:
+            # Step 1: Save to DB to check for duplicates
+            is_new = db.save_job(job)
+            if not is_new:
+                logger.debug(f"Duplicate job skipped: {job.title}")
+                total_duplicates += 1
+                continue
 
-            logger.info(f"Scraping jobs from: {target_channel}")
-            scraped_jobs = await scraper.scrape()
-            logger.info(f"Scraped {len(scraped_jobs)} raw messages from {target_channel}.")
-            total_scraped += len(scraped_jobs)
+            # Step 2: Format and Send
+            try:
+                logger.info(f"New IT Job found: {job.title}. Preparing to post...")
+                formatted_message = JobFormatter.format_job(job)
+                await send_job_posting(formatted_message)
+                total_posted += 1
 
-            for job in scraped_jobs:
-                # Step 1: Filter
-                if not job_filter.is_it_job(job.description):
-                    logger.debug(f"Filtered out non-IT job: {job.title}")
-                    total_filtered += 1
-                    continue
-
-                # Step 2: Save to DB to check for duplicates
-                is_new = db.save_job(job)
-                if not is_new:
-                    logger.debug(f"Duplicate job skipped: {job.title}")
-                    total_duplicates += 1
-                    continue
-
-                # Step 3: Format and Send
-                try:
-                    logger.info(f"New IT Job found: {job.title}. Preparing to post...")
-                    formatted_message = JobFormatter.format_job(job)
-                    await send_job_posting(formatted_message)
-                    total_posted += 1
-
-                    # Small delay to avoid hitting Telegram API rate limits
-                    await asyncio.sleep(1)
-                except Exception as e:
-                    logger.error(f"Failed to process and post job '{job.title}': {e}")
-                    total_failed += 1
+                # Small delay to avoid hitting Telegram API rate limits
+                await asyncio.sleep(1)
+            except Exception as e:
+                logger.error(f"Failed to process and post job '{job.title}': {e}")
+                total_failed += 1
 
     logger.info(
         f"Pipeline finished. "
         f"Scraped: {total_scraped}, "
-        f"Filtered out: {total_filtered}, "
         f"Duplicates: {total_duplicates}, "
         f"Posted: {total_posted}, "
         f"Failed: {total_failed}"
@@ -129,7 +145,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         prog="it-job-aggregator",
-        description="Scrape IT jobs from Telegram channels, filter, deduplicate, and post.",
+        description="Scrape IT jobs from jobs.ps, deduplicate, and post to Telegram.",
     )
 
     mode = parser.add_mutually_exclusive_group()

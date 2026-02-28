@@ -1,7 +1,7 @@
 import pytest
 
-# NOTE: conftest.py already sets TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID,
-# TARGET_CHANNELS in os.environ before any source imports. These tests use
+# NOTE: conftest.py already sets TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID
+# in os.environ before any source imports. These tests use
 # monkeypatch to override/remove env vars for specific scenarios.
 
 
@@ -26,38 +26,6 @@ def test_access_channel_id_returns_string():
 
     assert isinstance(TELEGRAM_CHANNEL_ID, str)
     assert len(TELEGRAM_CHANNEL_ID) > 0
-
-
-def test_target_channels_returns_list():
-    """Test that TARGET_CHANNELS is parsed as a list of channel names."""
-    from it_job_aggregator.config import TARGET_CHANNELS
-
-    assert isinstance(TARGET_CHANNELS, list)
-    assert len(TARGET_CHANNELS) > 0
-    assert all(isinstance(ch, str) for ch in TARGET_CHANNELS)
-
-
-def test_target_channels_comma_separated(monkeypatch):
-    """Test that comma-separated TARGET_CHANNELS are split into a list."""
-    monkeypatch.setenv("TARGET_CHANNELS", "channel1, channel2, channel3")
-
-    # Force reload of config by creating a fresh _Config instance
-    from it_job_aggregator.config import _Config
-
-    cfg = _Config()
-    channels = cfg.TARGET_CHANNELS
-    assert channels == ["channel1", "channel2", "channel3"]
-
-
-def test_target_channels_single_value(monkeypatch):
-    """Test that a single channel name without commas returns a one-element list."""
-    monkeypatch.setenv("TARGET_CHANNELS", "jobspsco")
-
-    from it_job_aggregator.config import _Config
-
-    cfg = _Config()
-    channels = cfg.TARGET_CHANNELS
-    assert channels == ["jobspsco"]
 
 
 def test_missing_bot_token_raises_on_access(monkeypatch):
@@ -104,17 +72,6 @@ def test_module_getattr_unknown_attribute():
 
     with pytest.raises(AttributeError, match="NONEXISTENT"):
         _ = config_module.NONEXISTENT
-
-
-def test_target_channels_default_when_unset(monkeypatch):
-    """Test that TARGET_CHANNELS defaults to 'jobspsco' when env var is not set."""
-    monkeypatch.delenv("TARGET_CHANNELS", raising=False)
-
-    from it_job_aggregator.config import _Config
-
-    cfg = _Config()
-    channels = cfg.TARGET_CHANNELS
-    assert channels == ["jobspsco"]
 
 
 # --- SCRAPE_INTERVAL tests ---
@@ -171,3 +128,26 @@ def test_scrape_interval_non_numeric_raises(monkeypatch):
     cfg = _Config()
     with pytest.raises(ValueError, match="positive integer"):
         _ = cfg.SCRAPE_INTERVAL
+
+
+# --- DB_PATH tests ---
+
+
+def test_db_path_default(monkeypatch):
+    """Test that DB_PATH defaults to 'jobs.db' when env var is not set."""
+    monkeypatch.delenv("DB_PATH", raising=False)
+
+    from it_job_aggregator.config import _Config
+
+    cfg = _Config()
+    assert cfg.DB_PATH == "jobs.db"
+
+
+def test_db_path_custom_value(monkeypatch):
+    """Test that DB_PATH reads a custom value from env var."""
+    monkeypatch.setenv("DB_PATH", "/tmp/test.db")
+
+    from it_job_aggregator.config import _Config
+
+    cfg = _Config()
+    assert cfg.DB_PATH == "/tmp/test.db"

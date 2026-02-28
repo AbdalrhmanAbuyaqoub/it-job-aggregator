@@ -11,12 +11,12 @@ def test_valid_job_model():
         company="Tech Corp",
         link="https://example.com/job/123",
         description="We are looking for an SDET.",
-        source="Telegram",
+        source="Jobs.ps",
     )
     assert job.title == "Senior SDET"
     assert job.company == "Tech Corp"
     assert str(job.link) == "https://example.com/job/123"
-    assert job.source == "Telegram"
+    assert job.source == "Jobs.ps"
 
 
 def test_invalid_url_raises_error():
@@ -26,7 +26,7 @@ def test_invalid_url_raises_error():
             title="Senior SDET",
             link="not-a-valid-url",  # Invalid URL
             description="We are looking for an SDET.",
-            source="Telegram",
+            source="Jobs.ps",
         )
     assert "url" in str(exc_info.value).lower()
 
@@ -46,7 +46,7 @@ def test_optional_company_field():
         title="Senior SDET",
         link="https://example.com/job/123",
         description="We are looking for an SDET.",
-        source="Telegram",
+        source="Jobs.ps",
     )
     assert job.company is None
 
@@ -140,3 +140,96 @@ def test_missing_source_raises_error():
             link="https://example.com",
             description="desc",
         )
+
+
+def test_optional_position_level_field():
+    """Test that position_level field is optional and defaults to None."""
+    job = Job(
+        title="Test",
+        link="https://example.com",
+        description="desc",
+        source="src",
+    )
+    assert job.position_level is None
+
+
+def test_optional_location_field():
+    """Test that location field is optional and defaults to None."""
+    job = Job(
+        title="Test",
+        link="https://example.com",
+        description="desc",
+        source="src",
+    )
+    assert job.location is None
+
+
+def test_optional_deadline_field():
+    """Test that deadline field is optional and defaults to None."""
+    job = Job(
+        title="Test",
+        link="https://example.com",
+        description="desc",
+        source="src",
+    )
+    assert job.deadline is None
+
+
+def test_optional_experience_field():
+    """Test that experience field is optional and defaults to None."""
+    job = Job(
+        title="Test",
+        link="https://example.com",
+        description="desc",
+        source="src",
+    )
+    assert job.experience is None
+
+
+def test_optional_posted_date_field():
+    """Test that posted_date field is optional and defaults to None."""
+    job = Job(
+        title="Test",
+        link="https://example.com",
+        description="desc",
+        source="src",
+    )
+    assert job.posted_date is None
+
+
+def test_all_optional_fields_populated():
+    """Test creating a Job with all optional metadata fields populated."""
+    job = Job(
+        title="Software Engineer",
+        company="Tech Corp",
+        link="https://example.com/job/1",
+        description="A great job.",
+        source="Jobs.ps",
+        position_level="Mid-Level",
+        location="Ramallah",
+        deadline="2026-03-24",
+        experience="3 Years",
+        posted_date="24, Feb",
+    )
+    assert job.position_level == "Mid-Level"
+    assert job.location == "Ramallah"
+    assert job.deadline == "2026-03-24"
+    assert job.experience == "3 Years"
+    assert job.posted_date == "24, Feb"
+
+
+def test_partial_optional_fields():
+    """Test creating a Job with only some optional metadata fields."""
+    job = Job(
+        title="QA Engineer",
+        link="https://example.com/job/2",
+        description="Join our team.",
+        source="Jobs.ps",
+        location="Gaza",
+        experience="2 Years",
+    )
+    assert job.company is None
+    assert job.position_level is None
+    assert job.location == "Gaza"
+    assert job.deadline is None
+    assert job.experience == "2 Years"

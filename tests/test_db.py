@@ -1,3 +1,5 @@
+import sqlite3
+
 import pytest
 
 from it_job_aggregator.db import Database
@@ -26,7 +28,7 @@ def test_save_job_success(db):
         company="Acme Inc",
         link="https://example.com/acme",
         description="Great job.",
-        source="website",
+        source="Jobs.ps",
     )
 
     assert db.save_job(job) is True
@@ -47,7 +49,7 @@ def test_save_job_duplicate_link(db):
         company="Acme Inc",
         link="https://example.com/acme",
         description="Great job.",
-        source="website",
+        source="Jobs.ps",
     )
 
     job2 = Job(
@@ -55,7 +57,7 @@ def test_save_job_duplicate_link(db):
         company="Different Company",
         link="https://example.com/acme",  # Same link!
         description="Different description.",
-        source="telegram",
+        source="Jobs.ps",
     )
 
     # First save should succeed
@@ -103,7 +105,7 @@ def test_save_job_with_none_company(db):
         title="QA Engineer",
         link="https://example.com/qa",
         description="Join our team.",
-        source="telegram",
+        source="Jobs.ps",
     )
     assert job.company is None
     assert db.save_job(job) is True
@@ -123,7 +125,7 @@ def test_created_at_auto_timestamp(db):
         company="Cloud Co",
         link="https://example.com/devops",
         description="Cloud stuff.",
-        source="website",
+        source="Jobs.ps",
     )
     db.save_job(job)
 
@@ -143,7 +145,7 @@ def test_init_db_called_twice_is_safe(db):
         company="Corp",
         link="https://example.com/existing",
         description="Already here.",
-        source="website",
+        source="Jobs.ps",
     )
     db.save_job(job)
 
@@ -157,19 +159,26 @@ def test_init_db_called_twice_is_safe(db):
 
 
 def test_save_job_stores_all_fields(db):
-    """Test that all fields are correctly stored and retrievable."""
+    """Test that all fields including new metadata fields are correctly stored."""
     job = Job(
         title="Full Stack Developer",
         company="Startup Inc",
         link="https://example.com/fullstack",
         description="React + Node.js position.",
-        source="Telegram (@channel)",
+        source="Jobs.ps",
+        position_level="Mid-Level",
+        location="Ramallah",
+        deadline="2026-03-24",
+        experience="3 Years",
+        posted_date="24, Feb",
     )
     db.save_job(job)
 
     cursor = db.connection.cursor()
     cursor.execute(
-        "SELECT title, company, link, description, source FROM jobs WHERE link = ?",
+        """SELECT title, company, link, description, source,
+                  position_level, location, deadline, experience, posted_date
+           FROM jobs WHERE link = ?""",
         (str(job.link),),
     )
     row = cursor.fetchone()
@@ -177,4 +186,124 @@ def test_save_job_stores_all_fields(db):
     assert row[1] == "Startup Inc"
     assert row[2] == str(job.link)
     assert row[3] == "React + Node.js position."
-    assert row[4] == "Telegram (@channel)"
+    assert row[4] == "Jobs.ps"
+    assert row[5] == "Mid-Level"
+    assert row[6] == "Ramallah"
+    assert row[7] == "2026-03-24"
+    assert row[8] == "3 Years"
+    assert row[9] == "24, Feb"
+
+
+def test_save_job_with_null_metadata_fields(db):
+    """Test that jobs without optional metadata fields store NULL in the database."""
+    job = Job(
+        title="Backend Dev",
+        link="https://example.com/backend",
+        description="Python backend.",
+        source="Jobs.ps",
+    )
+    db.save_job(job)
+
+    cursor = db.connection.cursor()
+    cursor.execute(
+        """SELECT position_level, location, deadline, experience, posted_date
+           FROM jobs WHERE link = ?""",
+        (str(job.link),),
+    )
+    row = cursor.fetchone()
+    assert row[0] is None
+    assert row[1] is None
+    assert row[2] is None
+    assert row[3] is None
+    assert row[4] is None
+
+
+def test_migrate_add_columns_on_old_schema():
+    """Test that migration adds new columns to a database with the old schema."""
+    # Create a database with the old schema (no metadata columns)
+    conn = sqlite3.connect(":memory:")
+    conn.execute("""
+        CREATE TABLE jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            company TEXT,
+            link TEXT NOT NULL UNIQUE,
+            description TEXT,
+            source TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+
+    # Insert a job using the old schema
+    conn.execute(
+        "INSERT INTO jobs (title, company, link, description, source) VALUES (?, ?, ?, ?, ?)",
+        ("Old Job", "Old Corp", "https://example.com/old", "Old desc.", "Jobs.ps"),
+    )
+    conn.commit()
+
+    # Now create a Database instance that should run migration
+    db = Database.__new__(Database)
+    db.db_path = ":memory:"
+    db._conn = conn
+    db.init_db()
+
+    # Verify new columns exist
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(jobs)")
+    columns = {row[1] for row in cursor.fetchall()}
+    assert "position_level" in columns
+    assert "location" in columns
+    assert "deadline" in columns
+    assert "experience" in columns
+    assert "posted_date" in columns
+
+    # Verify old data is still intact
+    cursor.execute("SELECT title FROM jobs WHERE link = ?", ("https://example.com/old",))
+    row = cursor.fetchone()
+    assert row is not None
+    assert row[0] == "Old Job"
+
+    # Verify we can save a new job with the new fields
+    job = Job(
+        title="New Job",
+        link="https://example.com/new",
+        description="New desc.",
+        source="Jobs.ps",
+        position_level="Senior",
+        location="Ramallah",
+    )
+    assert db.save_job(job) is True
+
+    cursor.execute(
+        "SELECT position_level, location FROM jobs WHERE link = ?",
+        (str(job.link),),
+    )
+    row = cursor.fetchone()
+    assert row[0] == "Senior"
+    assert row[1] == "Ramallah"
+
+    conn.close()
+
+
+def test_schema_has_new_columns(db):
+    """Test that a freshly created database has all new metadata columns."""
+    cursor = db.connection.cursor()
+    cursor.execute("PRAGMA table_info(jobs)")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    expected = {
+        "id",
+        "title",
+        "company",
+        "link",
+        "description",
+        "source",
+        "position_level",
+        "location",
+        "deadline",
+        "experience",
+        "posted_date",
+        "created_at",
+    }
+    assert columns == expected

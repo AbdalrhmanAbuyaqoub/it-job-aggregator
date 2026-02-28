@@ -12,3 +12,8 @@ class Job(BaseModel):
     link: HttpUrl
     description: str
     source: str
+    position_level: str | None = None
+    location: str | None = None
+    deadline: str | None = None
+    experience: str | None = None
+    posted_date: str | None = None

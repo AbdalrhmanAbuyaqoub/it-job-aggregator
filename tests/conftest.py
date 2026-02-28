@@ -5,7 +5,6 @@ import pytest
 # Set environment variables for tests before any imports happen
 os.environ["TELEGRAM_BOT_TOKEN"] = "test_bot_token"
 os.environ["TELEGRAM_CHANNEL_ID"] = "test_channel_id"
-os.environ["TARGET_CHANNELS"] = "jobspsco"
 
 from it_job_aggregator.models import Job  # noqa: E402
 
@@ -18,7 +17,12 @@ def sample_job():
         company="Tech Corp",
         link="https://example.com/job/123",
         description="We are looking for a senior software engineer with 5+ years experience.",
-        source="Telegram (@test_channel)",
+        source="Jobs.ps",
+        position_level="Mid-Level",
+        location="Ramallah",
+        deadline="2026-03-24",
+        experience="3 Years",
+        posted_date="24, Feb",
     )
 
 
@@ -29,5 +33,5 @@ def sample_job_no_company():
         title="QA Automation Engineer",
         link="https://example.com/job/456",
         description="Join our QA team.",
-        source="Website",
+        source="Jobs.ps",
     )
