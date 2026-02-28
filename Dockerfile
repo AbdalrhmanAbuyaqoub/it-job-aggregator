@@ -1,4 +1,4 @@
-FROM python:3.12-slim AS base
+FROM mcr.microsoft.com/playwright/python:v1.58.0-noble AS base
 
 # Prevent Python from writing .pyc files and enable unbuffered output for logging
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -18,10 +18,9 @@ COPY README.md ./
 COPY src/ src/
 RUN uv sync --frozen --no-dev
 
-# Create data directory for SQLite DB and run as non-root user for security
+# Create data directory for SQLite DB and set ownership to built-in pwuser
 RUN mkdir -p /app/data \
-    && useradd --create-home appuser \
-    && chown -R appuser:appuser /app
-USER appuser
+    && chown -R pwuser:pwuser /app
+USER pwuser
 
 ENTRYPOINT ["uv", "run", "it-job-aggregator"]
