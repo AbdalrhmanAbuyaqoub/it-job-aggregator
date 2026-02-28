@@ -40,14 +40,13 @@ jobs.ps/en/categories/it-jobs
 | Language | Python 3.12 (requires >= 3.11) |
 | Package Manager | [uv](https://github.com/astral-sh/uv) |
 | Bot Framework | python-telegram-bot (async) |
-| HTTP Client | httpx (async) |
 | Browser Automation | Playwright (async, headless Chromium) |
 | Anti-Detection | playwright-stealth |
 | HTML Parsing | beautifulsoup4 |
 | Data Validation | Pydantic (Job model with HttpUrl) |
 | Database | sqlite3 (stdlib, link-based dedup) |
 | Config | python-dotenv + PEP 562 lazy loading |
-| Testing | pytest, pytest-asyncio, pytest-httpx |
+| Testing | pytest, pytest-asyncio |
 | Linting | ruff (lint + format) |
 | Type Checking | mypy (strict mode) |
 | Build System | hatchling (src-layout) |
@@ -140,7 +139,7 @@ The SQLite database is persisted in a Docker named volume (`bot-data`).
 
 ## Testing
 
-124 tests across 8 files:
+124 tests across 7 files:
 
 | File | Tests | Coverage |
 |---|---|---|

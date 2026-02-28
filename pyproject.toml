@@ -1,12 +1,11 @@
 [project]
 name = "it-job-aggregator"
 version = "0.1.0"
-description = "Telegram bot that scrapes IT job listings, filters by keywords, deduplicates, and posts to a channel"
+description = "Telegram bot that scrapes IT job listings from jobs.ps, deduplicates, and posts to a channel"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "beautifulsoup4>=4.14.3",
-    "httpx>=0.28.1",
     "playwright>=1.58.0",
     "playwright-stealth>=2.0.2",
     "pydantic>=2.12.5",
@@ -29,7 +28,6 @@ dev = [
     "mypy>=1.19.1",
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
-    "pytest-httpx>=0.36.0",
     "ruff>=0.15.4",
     "types-beautifulsoup4>=4.12.0.20250516",
 ]

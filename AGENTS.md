@@ -2,8 +2,9 @@
 
 ## Project Overview
 
-IT Job Aggregator: a Telegram bot that scrapes IT job listings from public Telegram channels,
-filters by IT keywords (Arabic + English), deduplicates via SQLite, and posts to `@palestineitjobs`.
+IT Job Aggregator: a Telegram bot that scrapes IT job listings from
+[jobs.ps](https://www.jobs.ps/en/categories/it-jobs), deduplicates via SQLite, sorts by
+posted date, and posts to `@palestineitjobs`.
 This is an **SDET portfolio project** — test quality and coverage are first-class concerns.
 
 ## Build & Run Commands
@@ -36,23 +37,22 @@ uv run mypy src/                                 # strict type checking
 src/it_job_aggregator/       # Source package (src-layout, hatchling build)
 ├── main.py                  # Pipeline orchestrator + CLI entry point
 ├── config.py                # Lazy-loaded config via PEP 562 __getattr__
-├── models.py                # Pydantic Job model
+├── models.py                # Pydantic Job model (with posted_date)
 ├── db.py                    # SQLite deduplication database
-├── filters.py               # Keyword/regex IT job filter
 ├── formatter.py             # Telegram MarkdownV2 formatter
 ├── bot.py                   # Telegram Bot API sender with retry
 └── scrapers/
     ├── base.py              # BaseScraper ABC
-    └── telegram_scraper.py  # Scrapes t.me/s/<channel> web preview
+    └── jobsps_scraper.py    # Scrapes jobs.ps with Playwright + BS4
 tests/                       # pytest test suite (mirrors src structure)
 ├── conftest.py              # Shared fixtures + env var setup (runs before all imports)
+├── test_bot.py
+├── test_config.py
 ├── test_db.py
-├── test_filters.py
 ├── test_formatter.py
-├── test_scrapers.py
+├── test_main.py
 ├── test_models.py
-└── test_bot.py
-└── test_main.py
+└── test_scrapers.py
 ```
 
 ## Code Style
@@ -66,7 +66,7 @@ tests/                       # pytest test suite (mirrors src structure)
 - Three groups separated by blank lines: **stdlib → third-party → local**.
 - Local imports use the full package path: `from it_job_aggregator.models import Job`.
 - Top-level imports only (no function-level imports unless avoiding circular deps).
-- Relative imports only in `__init__.py` files (e.g., `from .telegram_scraper import TelegramScraper`).
+- Relative imports only in `__init__.py` files (e.g., `from .jobsps_scraper import JobsPsScraper`).
 
 ### Type Annotations
 - Type hints on all function signatures (parameters and return types).
@@ -75,14 +75,14 @@ tests/                       # pytest test suite (mirrors src structure)
 - Existing code may use `List` from `typing` — don't mix styles within a file.
 
 ### Naming Conventions
-- Classes: `PascalCase` (`JobFilter`, `TelegramScraper`, `Database`).
-- Functions/methods: `snake_case` (`save_job`, `is_it_job`, `format_job`).
-- Constants: `UPPER_SNAKE_CASE` (`MAX_RETRIES`, `HTTP_TIMEOUT`, `FALSE_POSITIVE_DOMAINS`).
-- Private: single underscore prefix (`_parse_message`, `_find_best_link`, `_conn`, `_Config`).
+- Classes: `PascalCase` (`JobsPsScraper`, `Database`, `JobFormatter`).
+- Functions/methods: `snake_case` (`save_job`, `format_job`, `sort_jobs_by_posted_date`).
+- Constants: `UPPER_SNAKE_CASE` (`MAX_RETRIES`, `INITIAL_BACKOFF`).
+- Private: single underscore prefix (`_parse_posted_date`, `_scrape_detail_page`, `_conn`, `_Config`).
 - Tests: `test_<what_is_being_tested>` — descriptive names, no `test_1` numbering.
 
 ### Error Handling
-- Catch specific exceptions first (`sqlite3.IntegrityError`, `httpx.HTTPError`), then broad `Exception`.
+- Catch specific exceptions first (`sqlite3.IntegrityError`), then broad `Exception`.
 - Log via `logging.getLogger(__name__)` — **never `print()`**.
 - All log messages use **f-strings**: `logger.info(f"Scraped {count} jobs")`.
 - `logging.basicConfig()` is called **only once** in `main.py`.
@@ -90,7 +90,7 @@ tests/                       # pytest test suite (mirrors src structure)
 
 ### Async
 - Scraping and bot operations are async (`async def`, `await`).
-- Use `httpx.AsyncClient` for HTTP (not `requests`).
+- Use Playwright async API for browser automation.
 - Use `asyncio.sleep()` (never `time.sleep()` in async code).
 - Entry point: `cli()` parses args, then `asyncio.run(run_pipeline())` or `asyncio.run(run_loop())`.
 
@@ -113,19 +113,19 @@ tests/                       # pytest test suite (mirrors src structure)
 ## Testing Conventions
 
 ### Framework & Plugins
-- **pytest** + **pytest-asyncio** (auto mode) + **pytest-httpx**.
+- **pytest** + **pytest-asyncio** (auto mode).
 - `asyncio_mode = "auto"` in `pyproject.toml`.
 - Async tests use `@pytest.mark.asyncio` decorator for clarity (even though auto mode makes it optional).
 
 ### Test Organization
-- `conftest.py` sets env vars (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID`, `TARGET_CHANNELS`) **before** any source imports, with `# noqa: E402` on the post-env import.
+- `conftest.py` sets env vars (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID`) **before** any source imports, with `# noqa: E402` on the post-env import.
 - Shared fixtures (`sample_job`, `sample_job_no_company`) live in `conftest.py`.
 - Each test file has a local fixture for its SUT (e.g., `db` fixture yields an in-memory `Database`).
 - All tests are module-level functions — no test classes.
 - `# --- New tests ---` comment separates original tests from later additions.
 
 ### Mocking Patterns
-- HTTP: `httpx_mock` fixture from pytest-httpx (`httpx_mock.add_response()`).
+- Playwright: `patch` with `AsyncMock` for browser, page, and context objects.
 - Telegram Bot: `patch("it_job_aggregator.bot.Bot")` with `AsyncMock`.
 - Sleep/backoff: `patch("...asyncio.sleep", new_callable=AsyncMock)`.
 - Config: `os.environ` in conftest, or `monkeypatch.setenv()` / `monkeypatch.delenv()`.
@@ -136,7 +136,7 @@ tests/                       # pytest test suite (mirrors src structure)
 - Boolean returns: `assert db.save_job(job) is True` / `is False` (identity, not truthiness).
 - HttpUrl comparisons: `str(job.link)` or `.rstrip("/")`.
 - Errors: `pytest.raises(ExceptionType, match="...")`.
-- Multiple inputs: `@pytest.mark.parametrize` (see `test_filters.py`).
+- Multiple inputs: `@pytest.mark.parametrize` (see `test_scrapers.py`).
 - Async mocks: `assert_awaited_once_with`, `assert_any_await`, `await_count`.
 
 ### Test Docstrings
@@ -149,10 +149,9 @@ tests/                       # pytest test suite (mirrors src structure)
 ## Important Gotchas
 
 1. **`sqlite3.connect(":memory:")`** creates a new DB each call — use a persistent `self._conn`.
-2. **`lstrip("www.")`** strips characters, not a prefix — use `removeprefix("www.")`.
-3. **Telegram MarkdownV2** requires escaping `` _*[]()~`>#+-=|{}.!\ `` but NOT forward slashes.
-4. **Unicode stylized text** (𝗗𝗲𝘃𝗲𝗹𝗼𝗽𝗲𝗿) needs `unicodedata.normalize("NFKD", text)` before regex.
-5. **The keyword `"it"`** causes massive false positives — use `"information technology"` instead.
-6. **Telegram auto-links** `VB.NET`, `ASP.NET`, `ADO.NET` as URLs — filter in `_is_valid_job_link()`.
-7. **`config.py` imports** must not trigger validation — the lazy `__getattr__` pattern prevents this.
-8. **Pydantic `HttpUrl`** may add trailing `/` — always use `str(job.link)` and `.rstrip("/")` in tests.
+2. **Telegram MarkdownV2** requires escaping `` _*[]()~`>#+-=|{}.!\ `` but NOT forward slashes or commas.
+3. **`config.py` imports** must not trigger validation — the lazy `__getattr__` pattern prevents this.
+4. **Pydantic `HttpUrl`** may add trailing `/` — always use `str(job.link)` and `.rstrip("/")` in tests.
+5. **Date strings** like `"24, Feb"` are NOT ISO-sortable — use `_parse_posted_date()` helper for sorting.
+6. **Playwright base image** is required for Docker — `mcr.microsoft.com/playwright/python:v1.58.0-noble`.
+7. **Docker volume permissions** — if switching user in Dockerfile, remove old volumes with `docker compose down -v`.

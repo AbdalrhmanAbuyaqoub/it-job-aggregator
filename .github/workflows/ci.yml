@@ -39,5 +39,4 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: "fake-token-for-ci"
           TELEGRAM_CHANNEL_ID: "@fake_channel"
-          TARGET_CHANNELS: "testchannel"
         run: uv run pytest -v
