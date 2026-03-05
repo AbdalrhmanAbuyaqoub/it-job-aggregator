@@ -46,7 +46,7 @@ jobs.ps/en/categories/it-jobs
 | Data Validation | Pydantic (Job model with HttpUrl) |
 | Database | sqlite3 (stdlib, link-based dedup) |
 | Config | python-dotenv + PEP 562 lazy loading |
-| Testing | pytest, pytest-asyncio |
+| Testing | pytest, pytest-asyncio, pytest-cov |
 | Linting | ruff (lint + format) |
 | Type Checking | mypy (strict mode) |
 | Build System | hatchling (src-layout) |
@@ -60,21 +60,23 @@ src/it_job_aggregator/
 ├── main.py                  # Pipeline orchestrator + CLI entry point
 ├── config.py                # Lazy-loaded config via PEP 562 __getattr__
 ├── models.py                # Pydantic Job model (with posted_date)
-├── db.py                    # SQLite deduplication database
-├── formatter.py             # Telegram MarkdownV2 formatter
-├── bot.py                   # Telegram Bot API sender with retry
+├── db.py                    # SQLite deduplication database (URL-normalized dedup)
+├── formatter.py             # Telegram MarkdownV2 formatter (with URL escaping)
+├── bot.py                   # Telegram Bot API sender with retry + session cleanup
+├── utils.py                 # Shared utilities (date parsing with year-boundary fix)
 └── scrapers/
     ├── base.py              # BaseScraper ABC
     └── jobsps_scraper.py    # Scrapes jobs.ps with Playwright + BS4
 tests/
 ├── conftest.py              # Shared fixtures + env var setup
-├── test_bot.py              # Bot send, retries, backoff
+├── test_bot.py              # Bot send, retries, backoff, session lifecycle
 ├── test_config.py           # Lazy loading, validation, defaults
-├── test_db.py               # CRUD, duplicates, migration, schema
-├── test_formatter.py        # Escaping, bold title, posted date, field ordering
-├── test_main.py             # Pipeline integration, sorting, loop, CLI
-├── test_models.py           # Pydantic validation, optional fields
-└── test_scrapers.py         # Listing/detail parsing, pagination, retries
+├── test_db.py               # CRUD, duplicates, URL normalization, migration, schema
+├── test_formatter.py        # Escaping, bold title, URL escaping, optional fields
+├── test_main.py             # Pipeline integration, sorting, error handling, loop, CLI
+├── test_models.py           # Pydantic validation, required/optional fields
+├── test_scrapers.py         # Listing/detail parsing, pagination, Cloudflare, retries
+└── test_utils.py            # Date parsing, year-boundary rollback, edge cases
 ```
 
 ## Setup
@@ -139,22 +141,36 @@ The SQLite database is persisted in a Docker named volume (`bot-data`).
 
 ## Testing
 
-124 tests across 7 files:
+154 tests across 8 files with **95% code coverage**:
 
 | File | Tests | Coverage |
 |---|---|---|
-| test_bot.py | 7 | Success, retries, backoff, empty/long messages |
-| test_config.py | 14 | Lazy loading, missing env vars, defaults, DB_PATH |
-| test_db.py | 12 | CRUD, duplicates, context manager, migration, schema |
-| test_formatter.py | 18 | Escaping, bold title, empty line, posted date, field ordering |
-| test_main.py | 23 | Pipeline integration, date sorting, run_loop, CLI |
+| test_scrapers.py | 39 | Listing/detail parsing, pagination, Cloudflare timeout, incremental scraping |
+| test_main.py | 25 | Pipeline integration, date sorting, error handling, run_loop, CLI |
+| test_formatter.py | 23 | Escaping, bold title, URL escaping, optional description, field ordering |
 | test_models.py | 19 | Validation, required/optional fields, URL handling |
-| test_scrapers.py | 31 | Listing/detail parsing, pagination, retries, Cloudflare |
+| test_db.py | 18 | CRUD, duplicates, URL normalization, context manager, migration, schema |
+| test_config.py | 14 | Lazy loading, missing env vars, defaults, DB_PATH |
+| test_bot.py | 8 | Success, retries, backoff, session lifecycle, delegation |
+| test_utils.py | 8 | Date parsing, year-boundary rollback, edge cases |
+
+| Module | Coverage |
+|---|---|
+| formatter.py | 100% |
+| models.py | 100% |
+| main.py | 99% |
+| bot.py | 96% |
+| db.py | 95% |
+| config.py | 94% |
+| jobsps_scraper.py | 93% |
+| utils.py | 89% |
+| base.py | 88% |
 
 ```bash
-uv run pytest              # run all tests
-uv run pytest -v           # verbose output
-uv run pytest -k "test_escape_markdown"   # keyword match
+uv run pytest                                # run all tests
+uv run pytest -v                             # verbose output
+uv run pytest -k "test_escape_markdown"      # keyword match
+uv run pytest --cov=it_job_aggregator        # run with coverage report
 ```
 
 ## Code Quality
