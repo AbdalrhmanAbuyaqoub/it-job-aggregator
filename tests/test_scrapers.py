@@ -302,7 +302,7 @@ async def test_scrape_listing_page_parses_jobs(scraper):
     mock_page = _make_mock_page([SAMPLE_LISTING_HTML])
     cutoff_date = datetime.now() - timedelta(days=30)
 
-    jobs, has_old = await scraper._scrape_listing_page(
+    jobs, has_old, has_known = await scraper._scrape_listing_page(
         mock_page, page_num=1, cutoff_date=cutoff_date, max_retries=1, initial_backoff=0
     )
 
@@ -313,6 +313,7 @@ async def test_scrape_listing_page_parses_jobs(scraper):
     assert jobs[1]["title"] == "Backend Developer"
     assert jobs[1]["company"] == "Tech Corp"
     assert jobs[1]["location"] == "Hebron"
+    assert has_known is False
 
 
 @pytest.mark.asyncio
@@ -321,12 +322,13 @@ async def test_scrape_listing_page_filters_old_jobs(scraper):
     mock_page = _make_mock_page([SAMPLE_LISTING_HTML_OLD_JOBS])
     cutoff_date = datetime.now() - timedelta(days=30)
 
-    jobs, has_old = await scraper._scrape_listing_page(
+    jobs, has_old, has_known = await scraper._scrape_listing_page(
         mock_page, page_num=1, cutoff_date=cutoff_date, max_retries=1, initial_backoff=0
     )
 
     assert len(jobs) == 0
     assert has_old is True
+    assert has_known is False
 
 
 @pytest.mark.asyncio
@@ -335,12 +337,13 @@ async def test_scrape_listing_page_empty(scraper):
     mock_page = _make_mock_page([SAMPLE_LISTING_HTML_EMPTY])
     cutoff_date = datetime.now() - timedelta(days=30)
 
-    jobs, has_old = await scraper._scrape_listing_page(
+    jobs, has_old, has_known = await scraper._scrape_listing_page(
         mock_page, page_num=1, cutoff_date=cutoff_date, max_retries=1, initial_backoff=0
     )
 
     assert jobs == []
     assert has_old is False
+    assert has_known is False
 
 
 # --- Detail page tests ---
@@ -429,17 +432,46 @@ async def test_scrape_detail_page_failure_returns_listing_fallback(scraper):
     [
         ("24, Feb", 2, 24),
         ("5, Jan", 1, 5),
-        ("15, Dec", 12, 15),
         ("1, Mar", 3, 1),
     ],
 )
 def test_parse_listing_date_current_year(scraper, date_str, expected_month, expected_day):
-    """Test parsing date strings without an explicit year (assumes current year)."""
+    """Test parsing date strings without an explicit year (past/present month → current year)."""
     result = scraper._parse_listing_date(date_str)
     assert result is not None
+    # These dates are in the past or current month, so year should be current
     assert result.year == datetime.now().year
     assert result.month == expected_month
     assert result.day == expected_day
+
+
+def test_parse_listing_date_future_month_rolls_back(scraper):
+    """Test that a date whose month is in the future is assigned to the previous year."""
+    now = datetime.now()
+    # Pick a month that is definitely in the future relative to today
+    future_month = (now.month % 12) + 1  # next month
+    # Use abbreviated month names
+    month_abbr = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+    ][future_month - 1]
+    date_str = f"15, {month_abbr}"
+
+    result = scraper._parse_listing_date(date_str)
+    assert result is not None
+    assert result.year == now.year - 1
+    assert result.month == future_month
+    assert result.day == 15
 
 
 @pytest.mark.parametrize(
@@ -479,9 +511,10 @@ async def test_get_total_pages_multi_page(scraper):
     """Test that total pages is correctly extracted from pagination links."""
     mock_page = _make_mock_page([SAMPLE_LISTING_HTML])
 
-    total = await scraper._get_total_pages(mock_page, max_retries=1, initial_backoff=0)
+    total, html = await scraper._get_total_pages(mock_page, max_retries=1, initial_backoff=0)
 
     assert total == 3
+    assert html is not None
 
 
 @pytest.mark.asyncio
@@ -489,9 +522,10 @@ async def test_get_total_pages_single_page(scraper):
     """Test that a single page listing returns 1 as total pages."""
     mock_page = _make_mock_page([SAMPLE_LISTING_HTML_SINGLE_PAGE])
 
-    total = await scraper._get_total_pages(mock_page, max_retries=1, initial_backoff=0)
+    total, html = await scraper._get_total_pages(mock_page, max_retries=1, initial_backoff=0)
 
     assert total == 1
+    assert html is not None
 
 
 # --- Parse listing row tests ---
@@ -602,10 +636,9 @@ async def test_scrape_full_flow(scraper):
         deadline="2026-04-01",
         experience="1 Years",
     )
-    # Response order: _get_total_pages, _scrape_listing_page, detail page
+    # Response order: _get_total_pages (page 1 HTML reused for listing), detail page
     mock_page = _make_mock_page(
         [
-            SAMPLE_LISTING_HTML_SINGLE_PAGE,
             SAMPLE_LISTING_HTML_SINGLE_PAGE,
             detail_html,
         ]
@@ -654,10 +687,9 @@ async def test_scrape_stops_pagination_on_old_jobs():
     """Test that pagination stops when all jobs on a page are older than 30 days."""
     scraper = JobsPsScraper()
 
-    # Response order: _get_total_pages, _scrape_listing_page
+    # Response order: _get_total_pages (page 1 HTML reused for listing)
     mock_page = _make_mock_page(
         [
-            SAMPLE_LISTING_HTML_OLD_JOBS,
             SAMPLE_LISTING_HTML_OLD_JOBS,
         ]
     )
@@ -765,6 +797,21 @@ async def test_wait_for_cloudflare_skips_normal_page(scraper):
     mock_page.wait_for_function.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_wait_for_cloudflare_timeout_raises(scraper):
+    """Test that a Cloudflare challenge timeout re-raises TimeoutError.
+
+    Previously TimeoutError was silently swallowed, causing _fetch_page to
+    read the challenge HTML as if it were real page content.
+    """
+    mock_page = AsyncMock()
+    mock_page.title.return_value = "Just a moment..."
+    mock_page.wait_for_function = AsyncMock(side_effect=TimeoutError("Timed out"))
+
+    with pytest.raises(TimeoutError):
+        await scraper._wait_for_cloudflare(mock_page, timeout=1000)
+
+
 # --- Source name and URL tests ---
 
 
@@ -778,3 +825,223 @@ def test_scraper_source_name():
     """Test that the scraper source name is 'Jobs.ps'."""
     scraper = JobsPsScraper()
     assert scraper.SOURCE_NAME == "Jobs.ps"
+
+
+# --- Incremental scraping tests ---
+
+
+@pytest.mark.asyncio
+async def test_scrape_listing_page_skips_known_urls(scraper):
+    """Test that listing page parsing skips and flags jobs already in the database."""
+    mock_page = _make_mock_page([SAMPLE_LISTING_HTML])
+    cutoff_date = datetime.now() - timedelta(days=30)
+
+    # Mock a database where the first job URL is already known
+    mock_db = MagicMock()
+    mock_db.is_job_known.side_effect = lambda url: (
+        url == "https://www.jobs.ps/en/jobs/full-stack-developer-65321"
+    )
+
+    jobs, has_old, has_known = await scraper._scrape_listing_page(
+        mock_page,
+        page_num=1,
+        cutoff_date=cutoff_date,
+        max_retries=1,
+        initial_backoff=0,
+        db=mock_db,
+    )
+
+    # First job is known => break immediately, no jobs returned
+    assert len(jobs) == 0
+    assert has_known is True
+    assert has_old is False
+
+
+@pytest.mark.asyncio
+async def test_scrape_listing_page_returns_new_before_known(scraper):
+    """Test that new jobs before the first known job are still returned."""
+    mock_page = _make_mock_page([SAMPLE_LISTING_HTML])
+    cutoff_date = datetime.now() - timedelta(days=30)
+
+    # Mock a database where only the SECOND job URL is known
+    mock_db = MagicMock()
+    mock_db.is_job_known.side_effect = lambda url: (
+        url == "https://www.jobs.ps/en/jobs/backend-developer-65300"
+    )
+
+    jobs, has_old, has_known = await scraper._scrape_listing_page(
+        mock_page,
+        page_num=1,
+        cutoff_date=cutoff_date,
+        max_retries=1,
+        initial_backoff=0,
+        db=mock_db,
+    )
+
+    # First job is new (returned), second job is known (breaks)
+    assert len(jobs) == 1
+    assert jobs[0]["title"] == "Full Stack Developer"
+    assert has_known is True
+    assert has_old is False
+
+
+@pytest.mark.asyncio
+async def test_scrape_listing_page_without_db_returns_all(scraper):
+    """Test that without a database, all jobs on the page are returned (no dedup)."""
+    mock_page = _make_mock_page([SAMPLE_LISTING_HTML])
+    cutoff_date = datetime.now() - timedelta(days=30)
+
+    jobs, has_old, has_known = await scraper._scrape_listing_page(
+        mock_page,
+        page_num=1,
+        cutoff_date=cutoff_date,
+        max_retries=1,
+        initial_backoff=0,
+        db=None,
+    )
+
+    assert len(jobs) == 2
+    assert has_known is False
+
+
+@pytest.mark.asyncio
+async def test_scrape_listing_page_uses_prefetched_html(scraper):
+    """Test that prefetched_html is used instead of fetching the page again."""
+    # Provide an empty mock page that should NOT be called for goto
+    mock_page = AsyncMock()
+    cutoff_date = datetime.now() - timedelta(days=30)
+
+    jobs, has_old, has_known = await scraper._scrape_listing_page(
+        mock_page,
+        page_num=1,
+        cutoff_date=cutoff_date,
+        max_retries=1,
+        initial_backoff=0,
+        prefetched_html=SAMPLE_LISTING_HTML,
+    )
+
+    # Page.goto should never have been called — HTML was provided
+    mock_page.goto.assert_not_awaited()
+    assert len(jobs) == 2
+
+
+@pytest.mark.asyncio
+async def test_scrape_full_flow_with_db_skips_known():
+    """Test that the full scrape flow skips detail fetches for known jobs."""
+    scraper = JobsPsScraper()
+
+    detail_html = _make_detail_html(
+        position_level="Entry Level",
+        location="Nablus",
+        deadline="2026-04-01",
+        experience="1 Years",
+    )
+    # Only 1 detail page fetch expected (page 1 HTML reused from _get_total_pages,
+    # second job is known so no detail fetch for it)
+    mock_page = _make_mock_page(
+        [
+            SAMPLE_LISTING_HTML_SINGLE_PAGE,
+            detail_html,
+        ]
+    )
+
+    mock_context = AsyncMock()
+    mock_context.new_page.return_value = mock_page
+
+    mock_browser = AsyncMock()
+    mock_browser.new_context.return_value = mock_context
+
+    mock_pw = AsyncMock()
+    mock_pw.chromium.launch.return_value = mock_browser
+
+    mock_stealth_cm = AsyncMock()
+    mock_stealth_cm.__aenter__.return_value = mock_pw
+
+    mock_stealth = MagicMock()
+    mock_stealth.use_async.return_value = mock_stealth_cm
+
+    # DB says the QA Engineer job is NOT known
+    mock_db = MagicMock()
+    mock_db.is_job_known.return_value = False
+
+    with (
+        patch(
+            "it_job_aggregator.scrapers.jobsps_scraper.Stealth",
+            return_value=mock_stealth,
+        ),
+        patch(
+            "it_job_aggregator.scrapers.jobsps_scraper.asyncio.sleep",
+            new_callable=AsyncMock,
+        ),
+    ):
+        jobs = await scraper.scrape(db=mock_db, max_retries=1, initial_backoff=0)
+
+    assert len(jobs) == 1
+    assert jobs[0].title == "QA Engineer"
+
+
+@pytest.mark.asyncio
+async def test_scrape_stops_pagination_on_known_jobs():
+    """Test that pagination stops when an already-known job URL is encountered."""
+    scraper = JobsPsScraper()
+
+    # Two-page site: page 1 has a known job, so page 2 should never be fetched
+    # Response order: _get_total_pages fetches page 1 (reused for listing)
+    mock_page = _make_mock_page(
+        [
+            SAMPLE_LISTING_HTML,  # page 1 (has 3 pages of pagination)
+        ]
+    )
+
+    mock_context = AsyncMock()
+    mock_context.new_page.return_value = mock_page
+
+    mock_browser = AsyncMock()
+    mock_browser.new_context.return_value = mock_context
+
+    mock_pw = AsyncMock()
+    mock_pw.chromium.launch.return_value = mock_browser
+
+    mock_stealth_cm = AsyncMock()
+    mock_stealth_cm.__aenter__.return_value = mock_pw
+
+    mock_stealth = MagicMock()
+    mock_stealth.use_async.return_value = mock_stealth_cm
+
+    # DB says the first job URL on page 1 is known
+    mock_db = MagicMock()
+    mock_db.is_job_known.side_effect = lambda url: (
+        url == "https://www.jobs.ps/en/jobs/full-stack-developer-65321"
+    )
+
+    with (
+        patch(
+            "it_job_aggregator.scrapers.jobsps_scraper.Stealth",
+            return_value=mock_stealth,
+        ),
+        patch(
+            "it_job_aggregator.scrapers.jobsps_scraper.asyncio.sleep",
+            new_callable=AsyncMock,
+        ),
+    ):
+        jobs = await scraper.scrape(db=mock_db, max_retries=1, initial_backoff=0)
+
+    # First job is known => pagination stops, no detail pages fetched, no jobs returned
+    assert len(jobs) == 0
+
+
+# --- New tests ---
+
+
+def test_job_from_listing_bad_url(scraper):
+    """Test that _job_from_listing returns None when the listing has an invalid URL."""
+    listing = {
+        "title": "Some Job",
+        "company": "Some Corp",
+        "link": "not-a-valid-url",
+        "location": "Ramallah",
+        "date_str": "24, Feb",
+    }
+
+    result = scraper._job_from_listing(listing)
+    assert result is None

@@ -530,3 +530,85 @@ def test_parse_posted_date_invalid_returns_max():
 
     result = _parse_posted_date("not a date")
     assert result == datetime.max
+
+
+# --- New tests ---
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_scraper_raises():
+    """Test that run_pipeline handles a scraper exception without crashing."""
+    with (
+        patch("it_job_aggregator.main.JobsPsScraper") as mock_scraper_class,
+        patch("it_job_aggregator.main.Database") as mock_db_class,
+        patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
+        patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        mock_scraper = AsyncMock()
+        mock_scraper.scrape.side_effect = RuntimeError("Network failure")
+        mock_scraper_class.return_value = mock_scraper
+
+        mock_db = MagicMock()
+        mock_db_class.return_value.__enter__ = MagicMock(return_value=mock_db)
+        mock_db_class.return_value.__exit__ = MagicMock(return_value=False)
+
+        from it_job_aggregator.main import run_pipeline
+
+        # Should raise — the pipeline does not swallow scraper errors
+        with pytest.raises(RuntimeError, match="Network failure"):
+            await run_pipeline()
+
+        # Nothing should have been sent
+        mock_send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_posts_in_date_order():
+    """Test that the pipeline sends jobs sorted by posted_date (earliest first)."""
+    jobs = [
+        Job(
+            title="Recent Job",
+            link="https://example.com/recent",
+            source="Jobs.ps",
+            posted_date="24, Feb",
+        ),
+        Job(
+            title="Old Job",
+            link="https://example.com/old",
+            source="Jobs.ps",
+            posted_date="10, Feb",
+        ),
+    ]
+
+    with (
+        patch("it_job_aggregator.main.JobsPsScraper") as mock_scraper_class,
+        patch("it_job_aggregator.main.Database") as mock_db_class,
+        patch("it_job_aggregator.main.JobFormatter") as mock_formatter_class,
+        patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
+        patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        mock_scraper = AsyncMock()
+        mock_scraper.scrape.return_value = jobs
+        mock_scraper_class.return_value = mock_scraper
+
+        mock_db = MagicMock()
+        mock_db.save_job.return_value = True
+        mock_db_class.return_value.__enter__ = MagicMock(return_value=mock_db)
+        mock_db_class.return_value.__exit__ = MagicMock(return_value=False)
+
+        # Track which job titles are formatted in order
+        formatted_titles: list[str] = []
+
+        def track_format(job: Job) -> str:
+            formatted_titles.append(job.title)
+            return f"Formatted: {job.title}"
+
+        mock_formatter_class.format_job.side_effect = track_format
+
+        from it_job_aggregator.main import run_pipeline
+
+        await run_pipeline()
+
+        # Old Job (Feb 10) should be formatted/sent before Recent Job (Feb 24)
+        assert formatted_titles == ["Old Job", "Recent Job"]
+        assert mock_send.await_count == 2

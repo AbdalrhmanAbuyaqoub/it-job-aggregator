@@ -35,7 +35,7 @@ def test_missing_required_fields_raises_error():
     """Test that missing required fields raises a validation error."""
     with pytest.raises(ValidationError):
         Job(
-            # Missing title, link, description, source
+            # Missing title, link, source
             company="Tech Corp"
         )
 
@@ -122,14 +122,14 @@ def test_missing_link_raises_error():
         )
 
 
-def test_missing_description_raises_error():
-    """Test that omitting the description field raises a ValidationError."""
-    with pytest.raises(ValidationError):
-        Job(
-            title="Test",
-            link="https://example.com",
-            source="src",
-        )
+def test_optional_description_field():
+    """Test that description field is optional and defaults to None."""
+    job = Job(
+        title="Test",
+        link="https://example.com",
+        source="src",
+    )
+    assert job.description is None
 
 
 def test_missing_source_raises_error():

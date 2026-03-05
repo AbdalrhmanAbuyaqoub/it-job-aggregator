@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from bs4 import BeautifulSoup, Tag
 from playwright.async_api import Page, async_playwright
@@ -10,6 +13,10 @@ from pydantic import HttpUrl
 
 from it_job_aggregator.models import Job
 from it_job_aggregator.scrapers.base import BaseScraper
+from it_job_aggregator.utils import parse_job_date
+
+if TYPE_CHECKING:
+    from it_job_aggregator.db import Database
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +40,17 @@ class JobsPsScraper(BaseScraper):
 
     async def scrape(
         self,
+        db: Database | None = None,
         max_retries: int = MAX_RETRIES,
         initial_backoff: float = INITIAL_BACKOFF,
     ) -> list[Job]:
-        """Scrape IT jobs from jobs.ps, returning jobs posted in the last 30 days."""
+        """
+        Scrape IT jobs from jobs.ps, returning jobs posted in the last 30 days.
+
+        When *db* is provided, already-known job URLs are skipped (no detail
+        page fetch) and pagination stops on the first known URL, making
+        subsequent runs significantly faster.
+        """
         jobs: list[Job] = []
         cutoff_date = datetime.now() - timedelta(days=MAX_AGE_DAYS)
 
@@ -53,13 +67,25 @@ class JobsPsScraper(BaseScraper):
             page = await context.new_page()
 
             try:
-                total_pages = await self._get_total_pages(page, max_retries, initial_backoff)
+                total_pages, first_page_html = await self._get_total_pages(
+                    page, max_retries, initial_backoff
+                )
                 logger.info(f"Found {total_pages} pages of job listings on jobs.ps")
 
                 for page_num in range(1, total_pages + 1):
                     logger.info(f"Scraping listing page {page_num}/{total_pages}")
-                    listing_jobs, has_old_jobs = await self._scrape_listing_page(
-                        page, page_num, cutoff_date, max_retries, initial_backoff
+
+                    # Reuse the HTML we already fetched for page 1
+                    prefetched_html = first_page_html if page_num == 1 else None
+
+                    listing_jobs, has_old_jobs, has_known_jobs = await self._scrape_listing_page(
+                        page,
+                        page_num,
+                        cutoff_date,
+                        max_retries,
+                        initial_backoff,
+                        db=db,
+                        prefetched_html=prefetched_html,
                     )
 
                     for listing in listing_jobs:
@@ -76,6 +102,12 @@ class JobsPsScraper(BaseScraper):
                             f"Stopping pagination."
                         )
                         break
+
+                    if has_known_jobs:
+                        logger.info(
+                            f"Reached already-known job on page {page_num}. Stopping pagination."
+                        )
+                        break
             finally:
                 await context.close()
                 await browser.close()
@@ -88,11 +120,17 @@ class JobsPsScraper(BaseScraper):
         page: Page,
         max_retries: int,
         initial_backoff: float,
-    ) -> int:
-        """Fetch the first listing page and determine total number of pages."""
+    ) -> tuple[int, str | None]:
+        """
+        Fetch the first listing page and determine total number of pages.
+
+        Returns:
+            A tuple of (total_pages, first_page_html).  The caller can reuse
+            *first_page_html* to avoid fetching page 1 a second time.
+        """
         html = await self._fetch_page(page, self.BASE_URL, max_retries, initial_backoff)
         if not html:
-            return 0
+            return 0, None
 
         soup = BeautifulSoup(html, "html.parser")
         last_link = soup.select_one("ul.pagination li:last-child a")
@@ -100,10 +138,10 @@ class JobsPsScraper(BaseScraper):
             href = str(last_link["href"])
             if "page=" in href:
                 try:
-                    return int(href.split("page=")[-1])
+                    return int(href.split("page=")[-1]), html
                 except ValueError:
                     pass
-        return 1
+        return 1, html
 
     async def _scrape_listing_page(
         self,
@@ -112,25 +150,47 @@ class JobsPsScraper(BaseScraper):
         cutoff_date: datetime,
         max_retries: int,
         initial_backoff: float,
-    ) -> tuple[list[dict[str, str]], bool]:
+        db: Database | None = None,
+        prefetched_html: str | None = None,
+    ) -> tuple[list[dict[str, str]], bool, bool]:
         """
         Scrape a single listing page and return job metadata dicts
-        along with a flag indicating whether we hit jobs older than the cutoff.
+        along with flags indicating whether we hit old or already-known jobs.
+
+        When *db* is provided, each listing URL is checked against the
+        database.  The first already-known URL causes an early exit: any
+        remaining rows on the page are skipped and the caller should stop
+        paginating.
+
+        .. note::
+            The early-exit (``break``) on the first known URL assumes that
+            jobs.ps lists jobs in newest-first order.  If the site ever
+            reorders listings (e.g. featured/sponsored jobs), new postings
+            that appear *after* a known one would be silently skipped.
+
+        Args:
+            prefetched_html: If provided, use this HTML instead of fetching the
+                page again.  Used to avoid a redundant fetch of page 1.
 
         Returns:
-            A tuple of (list of job dicts, has_old_jobs).
+            A tuple of (list of job dicts, has_old_jobs, has_known_jobs).
             Each dict has keys: title, company, link, location, date_str.
         """
-        url = self.BASE_URL if page_num == 1 else f"{self.BASE_URL}?page={page_num}"
-        html = await self._fetch_page(page, url, max_retries, initial_backoff)
+        if prefetched_html is not None:
+            html: str | None = prefetched_html
+        else:
+            url = self.BASE_URL if page_num == 1 else f"{self.BASE_URL}?page={page_num}"
+            html = await self._fetch_page(page, url, max_retries, initial_backoff)
+
         if not html:
-            return [], False
+            return [], False, False
 
         soup = BeautifulSoup(html, "html.parser")
         rows = soup.select("div.list-3--body a.list-3--row")
 
         listing_jobs: list[dict[str, str]] = []
         has_old_jobs = False
+        has_known_jobs = False
 
         for row in rows:
             parsed = self._parse_listing_row(row)
@@ -142,9 +202,15 @@ class JobsPsScraper(BaseScraper):
                 has_old_jobs = True
                 continue
 
+            # Incremental scraping: skip and stop on already-known URLs
+            if db is not None and db.is_job_known(parsed["link"]):
+                logger.info(f"Job already known, stopping: {parsed['link']}")
+                has_known_jobs = True
+                break
+
             listing_jobs.append(parsed)
 
-        return listing_jobs, has_old_jobs
+        return listing_jobs, has_old_jobs, has_known_jobs
 
     async def _scrape_detail_page(
         self,
@@ -168,7 +234,6 @@ class JobsPsScraper(BaseScraper):
                 title=listing["title"],
                 company=listing.get("company") or None,
                 link=HttpUrl(listing["link"]),
-                description=listing["title"],
                 source=self.SOURCE_NAME,
                 position_level=details.get("position_level"),
                 location=details.get("location") or listing.get("location"),
@@ -187,7 +252,6 @@ class JobsPsScraper(BaseScraper):
                 title=listing["title"],
                 company=listing.get("company") or None,
                 link=HttpUrl(listing["link"]),
-                description=listing["title"],
                 source=self.SOURCE_NAME,
                 location=listing.get("location"),
                 posted_date=listing.get("date_str") or None,
@@ -287,23 +351,11 @@ class JobsPsScraper(BaseScraper):
         """
         Parse a date string from the listing page.
         Formats: "24, Feb" (current year) or "16, Nov, 2025" (explicit year).
+
+        Delegates to :func:`~it_job_aggregator.utils.parse_job_date` which
+        handles year-boundary roll-back for the short format.
         """
-        if not date_str:
-            return None
-
-        parts = [p.strip() for p in date_str.split(",")]
-        try:
-            if len(parts) == 3:
-                # "16, Nov, 2025" -> day, month, year
-                return datetime.strptime(f"{parts[0]} {parts[1]} {parts[2]}", "%d %b %Y")
-            elif len(parts) == 2:
-                # "24, Feb" -> day, month (current year)
-                current_year = datetime.now().year
-                return datetime.strptime(f"{parts[0]} {parts[1]} {current_year}", "%d %b %Y")
-        except ValueError as e:
-            logger.debug(f"Failed to parse date '{date_str}': {e}")
-
-        return None
+        return parse_job_date(date_str)
 
     async def _fetch_page(
         self,
@@ -345,6 +397,11 @@ class JobsPsScraper(BaseScraper):
         """
         Wait for Cloudflare challenge page to resolve.
         Detects the "Just a moment..." challenge page and waits for it to pass.
+
+        Raises:
+            TimeoutError: If the challenge does not resolve within *timeout* ms.
+                This lets ``_fetch_page`` retry the request instead of silently
+                reading challenge HTML as page content.
         """
         try:
             # Check if we're on a Cloudflare challenge page
@@ -359,5 +416,8 @@ class JobsPsScraper(BaseScraper):
                 # Give the page a moment to fully load after challenge
                 await page.wait_for_load_state("domcontentloaded")
                 logger.info("Cloudflare challenge resolved.")
+        except TimeoutError:
+            logger.warning("Cloudflare challenge did not resolve within timeout.")
+            raise
         except Exception as e:
             logger.warning(f"Cloudflare wait issue: {e}")

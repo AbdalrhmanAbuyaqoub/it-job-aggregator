@@ -22,6 +22,16 @@ class JobFormatter:
         # We need to add a backslash before any character in ESCAPE_CHARS
         return re.sub(f"([{re.escape(cls.ESCAPE_CHARS)}])", r"\\\1", text)
 
+    @staticmethod
+    def escape_url(url: str) -> str:
+        """
+        Escapes characters in a URL for use inside MarkdownV2 inline links.
+
+        Per the Telegram Bot API docs, inside the ``(url)`` portion of
+        ``[text](url)``, only ``)`` and ``\\`` must be escaped.
+        """
+        return url.replace("\\", "\\\\").replace(")", "\\)")
+
     @classmethod
     def format_job(cls, job: Job) -> str:
         """
@@ -59,8 +69,8 @@ class JobFormatter:
 
         message += f"*Source:* {source}\n\n"
 
-        # Link URL does not need escaping inside the href part of Markdown link,
-        # but the text part does. However, we'll just provide a hardcoded text.
-        message += f"[Apply Here / View Details]({str(job.link)})"
+        # Link URL needs only ) and \ escaped inside the href part of Markdown link.
+        escaped_url = cls.escape_url(str(job.link))
+        message += f"[Apply Here / View Details]({escaped_url})"
 
         return message

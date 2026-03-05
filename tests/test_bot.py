@@ -12,7 +12,7 @@ async def test_send_job_posting_success():
 
     with patch("it_job_aggregator.bot.Bot") as mock_bot_class:
         mock_bot_instance = AsyncMock()
-        mock_bot_class.return_value = mock_bot_instance
+        mock_bot_class.return_value.__aenter__.return_value = mock_bot_instance
 
         await send_job_posting(test_message)
 
@@ -39,7 +39,7 @@ async def test_send_job_posting_failure_after_retries():
     with patch("it_job_aggregator.bot.Bot") as mock_bot_class:
         mock_bot_instance = AsyncMock()
         mock_bot_instance.send_message.side_effect = Exception("Telegram API Error")
-        mock_bot_class.return_value = mock_bot_instance
+        mock_bot_class.return_value.__aenter__.return_value = mock_bot_instance
 
         with patch("it_job_aggregator.bot.asyncio.sleep", new_callable=AsyncMock):
             with pytest.raises(Exception, match="Telegram API Error"):
@@ -61,7 +61,7 @@ async def test_send_job_posting_succeeds_on_retry():
             Exception("Connection error"),
             None,  # success
         ]
-        mock_bot_class.return_value = mock_bot_instance
+        mock_bot_class.return_value.__aenter__.return_value = mock_bot_instance
 
         with patch("it_job_aggregator.bot.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await send_job_posting(test_message, max_retries=3, initial_backoff=2)
@@ -85,7 +85,7 @@ async def test_send_job_posting_exponential_backoff():
             Exception("Error 2"),
             None,  # success
         ]
-        mock_bot_class.return_value = mock_bot_instance
+        mock_bot_class.return_value.__aenter__.return_value = mock_bot_instance
 
         with patch("it_job_aggregator.bot.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await send_job_posting(test_message, max_retries=3, initial_backoff=2)
@@ -105,7 +105,7 @@ async def test_send_job_posting_single_attempt_no_retry():
     with patch("it_job_aggregator.bot.Bot") as mock_bot_class:
         mock_bot_instance = AsyncMock()
         mock_bot_instance.send_message.side_effect = Exception("API Error")
-        mock_bot_class.return_value = mock_bot_instance
+        mock_bot_class.return_value.__aenter__.return_value = mock_bot_instance
 
         with patch("it_job_aggregator.bot.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             with pytest.raises(Exception, match="API Error"):
@@ -124,7 +124,7 @@ async def test_send_job_posting_empty_message():
     """Test that an empty string message is still sent without error."""
     with patch("it_job_aggregator.bot.Bot") as mock_bot_class:
         mock_bot_instance = AsyncMock()
-        mock_bot_class.return_value = mock_bot_instance
+        mock_bot_class.return_value.__aenter__.return_value = mock_bot_instance
 
         await send_job_posting("")
 
@@ -140,7 +140,7 @@ async def test_send_job_posting_long_message():
 
     with patch("it_job_aggregator.bot.Bot") as mock_bot_class:
         mock_bot_instance = AsyncMock()
-        mock_bot_class.return_value = mock_bot_instance
+        mock_bot_class.return_value.__aenter__.return_value = mock_bot_instance
 
         # The bot module itself does not truncate — it sends as-is.
         # If Telegram rejects it, the retry logic handles the error.
@@ -149,3 +149,17 @@ async def test_send_job_posting_long_message():
         call_kwargs = mock_bot_instance.send_message.call_args.kwargs
         assert call_kwargs["text"] == long_message
         assert len(call_kwargs["text"]) == 5000
+
+
+@pytest.mark.asyncio
+async def test_main_delegates_to_send_job_posting():
+    """Test that bot.main() calls send_job_posting with a test message."""
+    with patch("it_job_aggregator.bot.send_job_posting", new_callable=AsyncMock) as mock_send:
+        from it_job_aggregator.bot import main
+
+        await main()
+
+        mock_send.assert_awaited_once()
+        # The test message should contain "Test Message"
+        sent_text = mock_send.call_args[0][0]
+        assert "Test Message" in sent_text

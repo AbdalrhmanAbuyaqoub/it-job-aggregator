@@ -268,3 +268,56 @@ def test_format_job_posted_date_not_displayed_when_none():
     )
     formatted = JobFormatter.format_job(job)
     assert "*Posted Date:*" not in formatted
+
+
+def test_escape_url_parentheses():
+    """Test that closing parentheses in URLs are escaped for MarkdownV2 inline links."""
+    url = "https://example.com/jobs/search?q=developer(senior)"
+    escaped = JobFormatter.escape_url(url)
+    assert escaped == r"https://example.com/jobs/search?q=developer(senior\)"
+
+
+def test_escape_url_backslash():
+    """Test that backslashes in URLs are escaped for MarkdownV2 inline links."""
+    url = r"https://example.com/path\file"
+    escaped = JobFormatter.escape_url(url)
+    assert escaped == r"https://example.com/path\\file"
+
+
+def test_escape_url_no_special_chars():
+    """Test that a normal URL passes through escape_url unchanged."""
+    url = "https://example.com/jobs/full-stack-developer-65321"
+    assert JobFormatter.escape_url(url) == url
+
+
+def test_format_job_url_with_parentheses():
+    """Test that a job URL containing ')' is escaped in the formatted output."""
+    job = Job(
+        title="Test",
+        link="https://example.com/job(1)",
+        description="desc",
+        source="Jobs.ps",
+    )
+    formatted = JobFormatter.format_job(job)
+    assert r"[Apply Here / View Details](https://example.com/job(1\))" in formatted
+
+
+def test_format_job_without_description():
+    """Test that formatting works correctly when description is None."""
+    job = Job(
+        title="Backend Engineer",
+        company="StartupX",
+        link="https://example.com/job/42",
+        source="Jobs.ps",
+        location="Ramallah",
+    )
+
+    assert job.description is None
+
+    formatted = JobFormatter.format_job(job)
+
+    assert r"*Title:* *Backend Engineer*" in formatted
+    assert r"*Company:* StartupX" in formatted
+    assert r"*Location:* Ramallah" in formatted
+    assert r"*Source:* Jobs\.ps" in formatted
+    assert "[Apply Here / View Details]" in formatted

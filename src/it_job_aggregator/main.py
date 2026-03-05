@@ -11,6 +11,7 @@ from it_job_aggregator.db import Database
 from it_job_aggregator.formatter import JobFormatter
 from it_job_aggregator.models import Job
 from it_job_aggregator.scrapers.jobsps_scraper import JobsPsScraper
+from it_job_aggregator.utils import parse_job_date
 
 # Set up logging once, in the application entry point only
 logging.basicConfig(
@@ -24,17 +25,12 @@ def _parse_posted_date(date_str: str) -> datetime:
     Parse a posted_date string into a datetime for sorting.
     Formats: "24, Feb" (current year) or "16, Nov, 2025" (explicit year).
     Returns datetime.max if parsing fails, pushing unparseable dates to the end.
+
+    Delegates to :func:`~it_job_aggregator.utils.parse_job_date` which
+    handles year-boundary roll-back for the short format.
     """
-    parts = [p.strip() for p in date_str.split(",")]
-    try:
-        if len(parts) == 3:
-            return datetime.strptime(f"{parts[0]} {parts[1]} {parts[2]}", "%d %b %Y")
-        elif len(parts) == 2:
-            current_year = datetime.now().year
-            return datetime.strptime(f"{parts[0]} {parts[1]} {current_year}", "%d %b %Y")
-    except ValueError:
-        pass
-    return datetime.max
+    result = parse_job_date(date_str)
+    return result if result is not None else datetime.max
 
 
 def sort_jobs_by_posted_date(jobs: list[Job]) -> list[Job]:
@@ -56,7 +52,7 @@ async def run_pipeline() -> None:
         scraper = JobsPsScraper()
 
         logger.info("Scraping IT jobs from jobs.ps...")
-        scraped_jobs = await scraper.scrape()
+        scraped_jobs = await scraper.scrape(db=db)
         logger.info(f"Scraped {len(scraped_jobs)} jobs from jobs.ps.")
 
         # Sort by posted date ascending (earliest first)

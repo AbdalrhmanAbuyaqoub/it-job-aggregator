@@ -2,6 +2,8 @@ import logging
 import sqlite3
 from types import TracebackType
 
+from pydantic import HttpUrl, ValidationError
+
 from it_job_aggregator.models import Job
 
 logger = logging.getLogger(__name__)
@@ -72,6 +74,26 @@ class Database:
                 logger.info(f"Migrated database: added column '{col_name}'")
 
         self.connection.commit()
+
+    def is_job_known(self, link: str) -> bool:
+        """
+        Check whether a job URL already exists in the database.
+        Used by scrapers to skip fetching detail pages for jobs we've already seen.
+
+        The link is normalized through Pydantic ``HttpUrl`` before the lookup so
+        that raw hrefs from HTML match the value stored by ``save_job()``, which
+        passes the link through ``str(job.link)`` (a ``HttpUrl`` instance).
+
+        Returns ``False`` for malformed URLs that cannot be parsed by ``HttpUrl``.
+        """
+        try:
+            normalized = str(HttpUrl(link))
+        except ValidationError:
+            logger.debug(f"Malformed URL skipped in is_job_known: {link}")
+            return False
+        cursor = self.connection.cursor()
+        cursor.execute("SELECT 1 FROM jobs WHERE link = ? LIMIT 1", (normalized,))
+        return cursor.fetchone() is not None
 
     def save_job(self, job: Job) -> bool:
         """

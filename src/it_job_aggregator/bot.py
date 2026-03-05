@@ -21,28 +21,28 @@ async def send_job_posting(
     Send a message to the configured Telegram channel with retry logic.
 
     Retries on transient errors (connection errors, timeouts, server errors)
-    using exponential backoff.
+    using exponential backoff.  The ``Bot`` session is properly closed after
+    use via the async context manager.
     """
-    bot = Bot(token=TELEGRAM_BOT_TOKEN)
-
-    for attempt in range(1, max_retries + 1):
-        try:
-            await bot.send_message(
-                chat_id=TELEGRAM_CHANNEL_ID,
-                text=message,
-                parse_mode=ParseMode.MARKDOWN_V2,
-            )
-            logger.info("Message sent successfully.")
-            return
-        except Exception as e:
-            if attempt == max_retries:
-                logger.error(f"Failed to send message after {max_retries} attempts: {e}")
-                raise
-            backoff = initial_backoff * (2 ** (attempt - 1))
-            logger.warning(
-                f"Attempt {attempt}/{max_retries} failed: {e}. Retrying in {backoff}s..."
-            )
-            await asyncio.sleep(backoff)
+    async with Bot(token=TELEGRAM_BOT_TOKEN) as bot:
+        for attempt in range(1, max_retries + 1):
+            try:
+                await bot.send_message(
+                    chat_id=TELEGRAM_CHANNEL_ID,
+                    text=message,
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                )
+                logger.info("Message sent successfully.")
+                return
+            except Exception as e:
+                if attempt == max_retries:
+                    logger.error(f"Failed to send message after {max_retries} attempts: {e}")
+                    raise
+                backoff = initial_backoff * (2 ** (attempt - 1))
+                logger.warning(
+                    f"Attempt {attempt}/{max_retries} failed: {e}. Retrying in {backoff}s..."
+                )
+                await asyncio.sleep(backoff)
 
 
 async def main() -> None:

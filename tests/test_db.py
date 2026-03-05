@@ -307,3 +307,81 @@ def test_schema_has_new_columns(db):
         "created_at",
     }
     assert columns == expected
+
+
+# --- is_job_known tests ---
+
+
+def test_is_job_known_returns_false_for_unknown_url(db):
+    """Test that is_job_known returns False for a URL not in the database."""
+    assert db.is_job_known("https://example.com/unknown") is False
+
+
+def test_is_job_known_returns_true_after_save(db):
+    """Test that is_job_known returns True for a URL that was previously saved."""
+    job = Job(
+        title="Software Engineer",
+        company="Acme Inc",
+        link="https://example.com/acme",
+        description="Great job.",
+        source="Jobs.ps",
+    )
+    db.save_job(job)
+
+    assert db.is_job_known(str(job.link)) is True
+
+
+def test_is_job_known_with_trailing_slash(db):
+    """Test that is_job_known matches the exact URL stored (including trailing slash)."""
+    job = Job(
+        title="DevOps Engineer",
+        company="Cloud Co",
+        link="https://example.com/devops",
+        description="Cloud stuff.",
+        source="Jobs.ps",
+    )
+    db.save_job(job)
+
+    # Pydantic HttpUrl may add trailing slash; match what's actually stored
+    stored_link = str(job.link)
+    assert db.is_job_known(stored_link) is True
+    # A different URL should not match
+    assert db.is_job_known("https://example.com/other") is False
+
+
+def test_is_job_known_with_closed_db_raises():
+    """Test that is_job_known raises RuntimeError on a closed database."""
+    test_db = Database(db_path=":memory:")
+    test_db.close()
+
+    with pytest.raises(RuntimeError, match="Database connection is closed"):
+        test_db.is_job_known("https://example.com/test")
+
+
+def test_is_job_known_normalizes_url(db):
+    """Test that is_job_known normalizes the URL through HttpUrl before lookup.
+
+    save_job() stores str(HttpUrl(...)) which may differ from the raw href
+    (e.g. bare domains get a trailing slash). is_job_known() must apply the
+    same normalization so raw hrefs from HTML match stored URLs.
+    """
+    job = Job(
+        title="Test Job",
+        link="https://example.com",
+        description="desc",
+        source="Jobs.ps",
+    )
+    db.save_job(job)
+
+    # HttpUrl normalizes "https://example.com" to "https://example.com/"
+    # The raw href (without trailing slash) must still match
+    assert db.is_job_known("https://example.com") is True
+    # And the normalized form should also match
+    assert db.is_job_known("https://example.com/") is True
+    # Unrelated URL should not match
+    assert db.is_job_known("https://example.com/other") is False
+
+
+def test_is_job_known_malformed_url_returns_false(db):
+    """Test that is_job_known returns False for a malformed URL instead of raising."""
+    assert db.is_job_known("not-a-valid-url") is False

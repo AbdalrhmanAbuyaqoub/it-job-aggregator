@@ -10,7 +10,7 @@ class Job(BaseModel):
     title: str
     company: str | None = None
     link: HttpUrl
-    description: str
+    description: str | None = None
     source: str
     position_level: str | None = None
     location: str | None = None
