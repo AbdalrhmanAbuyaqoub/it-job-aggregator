@@ -78,7 +78,7 @@ def test_format_job_with_all_fields():
     assert r"*Location:* Ramallah" in formatted
     assert r"*Position Level:* Mid\-Level" in formatted
     assert r"*Experience:* 3 Years" in formatted
-    assert r"*Deadline:* 2026\-03\-24" in formatted
+    assert "*Deadline:* Mar 24, 2026" in formatted
     assert "*Posted Date:* 24, Feb" in formatted
     assert r"*Source:* Jobs\.ps" in formatted
     assert "[Apply Here / View Details](https://example.com/job/1)" in formatted
@@ -164,7 +164,7 @@ def test_format_job_special_chars_in_location():
 
 
 def test_format_job_special_chars_in_deadline():
-    """Test that special characters in deadline (dashes) are escaped."""
+    """Test that an ISO deadline is normalized and special chars are escaped."""
     job = Job(
         title="Test",
         link="https://example.com/test",
@@ -173,7 +173,7 @@ def test_format_job_special_chars_in_deadline():
         deadline="2026-04-15",
     )
     formatted = JobFormatter.format_job(job)
-    assert r"*Deadline:* 2026\-04\-15" in formatted
+    assert "*Deadline:* Apr 15, 2026" in formatted
 
 
 def test_format_job_field_ordering():
@@ -321,3 +321,31 @@ def test_format_job_without_description():
     assert r"*Location:* Ramallah" in formatted
     assert r"*Source:* Jobs\.ps" in formatted
     assert "[Apply Here / View Details]" in formatted
+
+
+# --- _format_deadline tests ---
+
+
+def test_format_deadline_iso_date():
+    """Test that a plain ISO date is normalized to human-readable format."""
+    assert JobFormatter._format_deadline("2026-04-03") == "Apr 03, 2026"
+
+
+def test_format_deadline_iso_datetime_with_z():
+    """Test that an ISO 8601 datetime with Z suffix is normalized."""
+    assert JobFormatter._format_deadline("2026-03-09T00:00:00Z") == "Mar 09, 2026"
+
+
+def test_format_deadline_iso_datetime_without_z():
+    """Test that an ISO 8601 datetime without Z suffix is normalized."""
+    assert JobFormatter._format_deadline("2026-12-25T14:30:00") == "Dec 25, 2026"
+
+
+def test_format_deadline_already_formatted_passthrough():
+    """Test that an already-formatted deadline passes through unchanged."""
+    assert JobFormatter._format_deadline("Mar 09, 2026") == "Mar 09, 2026"
+
+
+def test_format_deadline_unparseable_returns_raw():
+    """Test that an unrecognized string is returned unchanged."""
+    assert JobFormatter._format_deadline("not-a-date") == "not-a-date"

@@ -2,35 +2,53 @@
 
 [![CI](https://github.com/AbdalrhmanAbuyaqoub/it-job-aggregator/actions/workflows/ci.yml/badge.svg)](https://github.com/AbdalrhmanAbuyaqoub/it-job-aggregator/actions/workflows/ci.yml)
 
-A Telegram bot that scrapes IT job listings from
-[jobs.ps](https://www.jobs.ps/en/categories/it-jobs), deduplicates via SQLite, sorts by
-posted date, and posts new matches to [@palestineitjobs](https://t.me/palestineitjobs).
+A Telegram bot that aggregates IT job listings from multiple Palestinian job
+boards — currently [jobs.ps](https://www.jobs.ps/en/categories/it-jobs) and
+[foras.ps](https://foras.ps) — deduplicates via SQLite, sorts by posted date, and
+posts new matches to [@palestineitjobs](https://t.me/palestineitjobs).
 
 Built as an **SDET portfolio project** with a strong focus on test quality, CI/CD, and
-production-grade architecture.
+production-grade architecture. The scraper registry pattern makes adding new sources
+straightforward.
 
 ## Architecture
 
 ```
-jobs.ps/en/categories/it-jobs
-        │
-        ▼
-   JobsPsScraper ────── Playwright headless browser + BeautifulSoup parsing
-        │
-        ▼
-   sort_jobs_by_posted_date ── earliest posted date first
-        │
-        ▼
-     Database ────────── SQLite deduplication (link-based)
-        │
-        ▼
-    JobFormatter ─────── Telegram MarkdownV2 escaping + bold title
-        │
-        ▼
-   send_job_posting ──── Telegram Bot API with exponential backoff
-        │
-        ▼
-   @palestineitjobs
+    ┌──────────────────────┐     ┌──────────────────────┐
+    │  jobs.ps             │     │  foras.ps            │
+    │  (HTML + Playwright) │     │  (REST API + aiohttp)│
+    └─────────┬────────────┘     └─────────┬────────────┘
+              │                            │
+              ▼                            ▼
+       JobsPsScraper              ForasPsScraper
+              │                            │
+              └────────────┬───────────────┘
+                           │
+                    Scraper Registry
+                    (main.py iterates
+                     all registered scrapers)
+                           │
+                           ▼
+              sort_jobs_by_posted_date
+              (stable sort — dated jobs first,
+               undated jobs keep position)
+                           │
+                           ▼
+                       Database
+                  (SQLite link-based dedup)
+                           │
+                           ▼
+                     JobFormatter
+              (MarkdownV2 + deadline
+               normalization)
+                           │
+                           ▼
+                   send_job_posting
+              (Telegram Bot API with
+               exponential backoff)
+                           │
+                           ▼
+                    @palestineitjobs
 ```
 
 ## Tech Stack
@@ -40,8 +58,9 @@ jobs.ps/en/categories/it-jobs
 | Language | Python 3.12 (requires >= 3.11) |
 | Package Manager | [uv](https://github.com/astral-sh/uv) |
 | Bot Framework | python-telegram-bot (async) |
-| Browser Automation | Playwright (async, headless Chromium) |
+| Browser Automation | Playwright (async, headless Chromium — Jobs.ps) |
 | Anti-Detection | playwright-stealth |
+| HTTP Client | aiohttp (async — Foras.ps REST API) |
 | HTML Parsing | beautifulsoup4 |
 | Data Validation | Pydantic (Job model with HttpUrl) |
 | Database | sqlite3 (stdlib, link-based dedup) |
@@ -57,25 +76,28 @@ jobs.ps/en/categories/it-jobs
 
 ```
 src/it_job_aggregator/
-├── main.py                  # Pipeline orchestrator + CLI entry point
+├── main.py                  # Pipeline orchestrator + scraper registry + CLI
 ├── config.py                # Lazy-loaded config via PEP 562 __getattr__
 ├── models.py                # Pydantic Job model (with posted_date)
 ├── db.py                    # SQLite deduplication database (URL-normalized dedup)
-├── formatter.py             # Telegram MarkdownV2 formatter (with URL escaping)
+├── formatter.py             # Telegram MarkdownV2 formatter (+ deadline normalization)
 ├── bot.py                   # Telegram Bot API sender with retry + session cleanup
 ├── utils.py                 # Shared utilities (date parsing with year-boundary fix)
 └── scrapers/
-    ├── base.py              # BaseScraper ABC
-    └── jobsps_scraper.py    # Scrapes jobs.ps with Playwright + BS4
+    ├── base.py              # BaseScraper ABC (_retry helper, SOURCE_NAME, constants)
+    ├── jobsps_scraper.py    # Scrapes jobs.ps with Playwright + BS4
+    └── forasps_scraper.py   # Scrapes foras.ps via public REST API + aiohttp
 tests/
 ├── conftest.py              # Shared fixtures + env var setup
 ├── test_bot.py              # Bot send, retries, backoff, session lifecycle
 ├── test_config.py           # Lazy loading, validation, defaults
 ├── test_db.py               # CRUD, duplicates, URL normalization, migration, schema
-├── test_formatter.py        # Escaping, bold title, URL escaping, optional fields
+├── test_formatter.py        # Escaping, bold title, URL escaping, deadline normalization
 ├── test_main.py             # Pipeline integration, sorting, error handling, loop, CLI
 ├── test_models.py           # Pydantic validation, required/optional fields
 ├── test_scrapers.py         # Listing/detail parsing, pagination, Cloudflare, retries
+├── test_forasps_scraper.py  # Foras.ps API responses, pagination, retries, incremental
+├── test_base_scraper.py     # BaseScraper._retry() logic, backoff, error propagation
 └── test_utils.py            # Date parsing, year-boundary rollback, edge cases
 ```
 
@@ -141,30 +163,34 @@ The SQLite database is persisted in a Docker named volume (`bot-data`).
 
 ## Testing
 
-154 tests across 8 files with **95% code coverage**:
+205 tests across 10 files with **96% code coverage**:
 
 | File | Tests | Coverage |
 |---|---|---|
 | test_scrapers.py | 39 | Listing/detail parsing, pagination, Cloudflare timeout, incremental scraping |
-| test_main.py | 25 | Pipeline integration, date sorting, error handling, run_loop, CLI |
-| test_formatter.py | 23 | Escaping, bold title, URL escaping, optional description, field ordering |
+| test_forasps_scraper.py | 31 | Foras.ps API responses, pagination, retries, incremental, error handling |
+| test_main.py | 28 | Pipeline integration, registry, date sorting, error handling, run_loop, CLI |
+| test_formatter.py | 28 | Escaping, bold title, URL escaping, deadline normalization, optional fields |
 | test_models.py | 19 | Validation, required/optional fields, URL handling |
 | test_db.py | 18 | CRUD, duplicates, URL normalization, context manager, migration, schema |
 | test_config.py | 14 | Lazy loading, missing env vars, defaults, DB_PATH |
-| test_bot.py | 8 | Success, retries, backoff, session lifecycle, delegation |
+| test_base_scraper.py | 12 | _retry() backoff, max attempts, error propagation, logging |
 | test_utils.py | 8 | Date parsing, year-boundary rollback, edge cases |
+| test_bot.py | 8 | Success, retries, backoff, session lifecycle, delegation |
 
 | Module | Coverage |
 |---|---|
 | formatter.py | 100% |
 | models.py | 100% |
+| scrapers/\_\_init\_\_.py | 100% |
 | main.py | 99% |
+| base.py | 97% |
+| forasps_scraper.py | 97% |
 | bot.py | 96% |
 | db.py | 95% |
 | config.py | 94% |
 | jobsps_scraper.py | 93% |
 | utils.py | 89% |
-| base.py | 88% |
 
 ```bash
 uv run pytest                                # run all tests
