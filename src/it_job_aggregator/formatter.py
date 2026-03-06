@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 
 from it_job_aggregator.models import Job
 
@@ -32,6 +33,31 @@ class JobFormatter:
         """
         return url.replace("\\", "\\\\").replace(")", "\\)")
 
+    # Deadline formats accepted by the normalizer, tried in order.
+    _DEADLINE_FORMATS = (
+        "%Y-%m-%dT%H:%M:%SZ",  # ISO 8601 with Z   (e.g. "2026-03-09T00:00:00Z")
+        "%Y-%m-%dT%H:%M:%S",  # ISO 8601 no Z      (e.g. "2026-03-09T14:30:00")
+        "%Y-%m-%d",  # Date only           (e.g. "2026-04-03")
+        "%b %d, %Y",  # Already formatted   (e.g. "Mar 09, 2026")
+    )
+
+    @classmethod
+    def _format_deadline(cls, raw: str) -> str:
+        """
+        Normalize a deadline string into a human-readable format.
+
+        Tries several common date formats and converts to ``"Mar 09, 2026"``
+        style.  Returns the original string unchanged if none of the known
+        formats match.
+        """
+        for fmt in cls._DEADLINE_FORMATS:
+            try:
+                dt = datetime.strptime(raw, fmt)
+                return dt.strftime("%b %d, %Y")
+            except ValueError:
+                continue
+        return raw
+
     @classmethod
     def format_job(cls, job: Job) -> str:
         """
@@ -60,7 +86,7 @@ class JobFormatter:
             message += f"*Experience:* {experience}\n"
 
         if job.deadline:
-            deadline = cls.escape_markdown(job.deadline)
+            deadline = cls.escape_markdown(cls._format_deadline(job.deadline))
             message += f"*Deadline:* {deadline}\n"
 
         if job.posted_date:

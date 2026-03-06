@@ -31,24 +31,35 @@ SAMPLE_JOBS = [
 ]
 
 
+def _make_mock_scraper_class(scrape_return: list[Job] | Exception) -> MagicMock:
+    """Create a mock scraper class whose instances have a working .scrape() coroutine."""
+    mock_class = MagicMock()
+    mock_class.__name__ = "MockScraper"
+    mock_instance = AsyncMock()
+    mock_instance.SOURCE_NAME = "MockScraper"
+    if isinstance(scrape_return, Exception):
+        mock_instance.scrape.side_effect = scrape_return
+    else:
+        mock_instance.scrape.return_value = scrape_return
+    mock_class.return_value = mock_instance
+    return mock_class
+
+
 # --- Integration tests for run_pipeline ---
 
 
 @pytest.mark.asyncio
 async def test_run_pipeline_end_to_end():
     """Test the full pipeline: scrape -> deduplicate -> format -> send."""
+    mock_scraper_class = _make_mock_scraper_class(SAMPLE_JOBS)
+
     with (
-        patch("it_job_aggregator.main.JobsPsScraper") as mock_scraper_class,
+        patch("it_job_aggregator.main.SCRAPER_REGISTRY", [mock_scraper_class]),
         patch("it_job_aggregator.main.Database") as mock_db_class,
         patch("it_job_aggregator.main.JobFormatter") as mock_formatter_class,
         patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
         patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
     ):
-        # Set up scraper mock
-        mock_scraper = AsyncMock()
-        mock_scraper.scrape.return_value = SAMPLE_JOBS
-        mock_scraper_class.return_value = mock_scraper
-
         # Set up database mock (context manager)
         mock_db = MagicMock()
         # Both jobs are new
@@ -67,7 +78,7 @@ async def test_run_pipeline_end_to_end():
         await run_pipeline()
 
         # Verify scraper was called
-        mock_scraper.scrape.assert_awaited_once()
+        mock_scraper_class.return_value.scrape.assert_awaited_once()
 
         # Verify both jobs were saved to DB
         assert mock_db.save_job.call_count == 2
@@ -79,17 +90,15 @@ async def test_run_pipeline_end_to_end():
 @pytest.mark.asyncio
 async def test_run_pipeline_all_duplicates():
     """Test pipeline when all jobs are duplicates (already in DB)."""
+    mock_scraper_class = _make_mock_scraper_class([SAMPLE_JOBS[0]])
+
     with (
-        patch("it_job_aggregator.main.JobsPsScraper") as mock_scraper_class,
+        patch("it_job_aggregator.main.SCRAPER_REGISTRY", [mock_scraper_class]),
         patch("it_job_aggregator.main.Database") as mock_db_class,
         patch("it_job_aggregator.main.JobFormatter") as mock_formatter_class,
         patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
         patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
     ):
-        mock_scraper = AsyncMock()
-        mock_scraper.scrape.return_value = [SAMPLE_JOBS[0]]
-        mock_scraper_class.return_value = mock_scraper
-
         mock_db = MagicMock()
         mock_db.save_job.return_value = False  # All duplicates
         mock_db_class.return_value.__enter__ = MagicMock(return_value=mock_db)
@@ -107,16 +116,14 @@ async def test_run_pipeline_all_duplicates():
 @pytest.mark.asyncio
 async def test_run_pipeline_no_jobs_scraped():
     """Test pipeline when the scraper returns no jobs."""
+    mock_scraper_class = _make_mock_scraper_class([])
+
     with (
-        patch("it_job_aggregator.main.JobsPsScraper") as mock_scraper_class,
+        patch("it_job_aggregator.main.SCRAPER_REGISTRY", [mock_scraper_class]),
         patch("it_job_aggregator.main.Database") as mock_db_class,
         patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
         patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
     ):
-        mock_scraper = AsyncMock()
-        mock_scraper.scrape.return_value = []  # No jobs
-        mock_scraper_class.return_value = mock_scraper
-
         mock_db = MagicMock()
         mock_db_class.return_value.__enter__ = MagicMock(return_value=mock_db)
         mock_db_class.return_value.__exit__ = MagicMock(return_value=False)
@@ -147,18 +154,15 @@ async def test_run_pipeline_send_failure_continues():
             source="Jobs.ps",
         ),
     ]
+    mock_scraper_class = _make_mock_scraper_class(jobs)
 
     with (
-        patch("it_job_aggregator.main.JobsPsScraper") as mock_scraper_class,
+        patch("it_job_aggregator.main.SCRAPER_REGISTRY", [mock_scraper_class]),
         patch("it_job_aggregator.main.Database") as mock_db_class,
         patch("it_job_aggregator.main.JobFormatter") as mock_formatter_class,
         patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
         patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
     ):
-        mock_scraper = AsyncMock()
-        mock_scraper.scrape.return_value = jobs
-        mock_scraper_class.return_value = mock_scraper
-
         mock_db = MagicMock()
         mock_db.save_job.return_value = True  # All new
         mock_db_class.return_value.__enter__ = MagicMock(return_value=mock_db)
@@ -183,17 +187,15 @@ async def test_run_pipeline_send_failure_continues():
 @pytest.mark.asyncio
 async def test_run_pipeline_mixed_new_and_duplicate():
     """Test pipeline with a mix of new and duplicate jobs."""
+    mock_scraper_class = _make_mock_scraper_class(SAMPLE_JOBS)
+
     with (
-        patch("it_job_aggregator.main.JobsPsScraper") as mock_scraper_class,
+        patch("it_job_aggregator.main.SCRAPER_REGISTRY", [mock_scraper_class]),
         patch("it_job_aggregator.main.Database") as mock_db_class,
         patch("it_job_aggregator.main.JobFormatter") as mock_formatter_class,
         patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
         patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
     ):
-        mock_scraper = AsyncMock()
-        mock_scraper.scrape.return_value = SAMPLE_JOBS
-        mock_scraper_class.return_value = mock_scraper
-
         mock_db = MagicMock()
         # First job is new, second is duplicate
         mock_db.save_job.side_effect = [True, False]
@@ -440,8 +442,8 @@ def test_sort_jobs_by_posted_date_ascending():
     assert sorted_jobs[2].title == "Job C"
 
 
-def test_sort_jobs_by_posted_date_none_goes_last():
-    """Test that jobs without posted_date are placed at the end."""
+def test_sort_jobs_by_posted_date_none_preserves_position():
+    """Test that jobs without posted_date stay in their original positions."""
     from it_job_aggregator.main import sort_jobs_by_posted_date
 
     jobs = [
@@ -449,7 +451,7 @@ def test_sort_jobs_by_posted_date_none_goes_last():
             title="No Date",
             link="https://example.com/nodate",
             description="No Date",
-            source="Jobs.ps",
+            source="Foras.ps",
         ),
         Job(
             title="Has Date",
@@ -462,8 +464,9 @@ def test_sort_jobs_by_posted_date_none_goes_last():
 
     sorted_jobs = sort_jobs_by_posted_date(jobs)
 
-    assert sorted_jobs[0].title == "Has Date"
-    assert sorted_jobs[1].title == "No Date"
+    # Undated job stays at index 0, dated job stays at index 1
+    assert sorted_jobs[0].title == "No Date"
+    assert sorted_jobs[1].title == "Has Date"
 
 
 def test_sort_jobs_by_posted_date_with_explicit_year():
@@ -532,34 +535,101 @@ def test_parse_posted_date_invalid_returns_max():
     assert result == datetime.max
 
 
+def test_sort_jobs_cross_source_interspersing():
+    """Test stable sort: dated jobs sort among themselves, undated jobs stay in place."""
+    from it_job_aggregator.main import sort_jobs_by_posted_date
+
+    jobs = [
+        Job(
+            title="JobsPs Late",
+            link="https://example.com/late",
+            source="Jobs.ps",
+            posted_date="24, Feb",
+        ),
+        Job(
+            title="Foras 1",
+            link="https://example.com/foras1",
+            source="Foras.ps",
+        ),
+        Job(
+            title="JobsPs Early",
+            link="https://example.com/early",
+            source="Jobs.ps",
+            posted_date="10, Feb",
+        ),
+        Job(
+            title="Foras 2",
+            link="https://example.com/foras2",
+            source="Foras.ps",
+        ),
+    ]
+
+    sorted_jobs = sort_jobs_by_posted_date(jobs)
+
+    # Dated jobs swap (Feb 10 before Feb 24), undated jobs stay at indices 1 and 3
+    assert sorted_jobs[0].title == "JobsPs Early"
+    assert sorted_jobs[1].title == "Foras 1"
+    assert sorted_jobs[2].title == "JobsPs Late"
+    assert sorted_jobs[3].title == "Foras 2"
+
+
+def test_sort_jobs_all_undated_preserves_order():
+    """Test that a list of all undated jobs is returned unchanged."""
+    from it_job_aggregator.main import sort_jobs_by_posted_date
+
+    jobs = [
+        Job(
+            title="Foras A",
+            link="https://example.com/fa",
+            source="Foras.ps",
+        ),
+        Job(
+            title="Foras B",
+            link="https://example.com/fb",
+            source="Foras.ps",
+        ),
+    ]
+
+    sorted_jobs = sort_jobs_by_posted_date(jobs)
+
+    assert sorted_jobs[0].title == "Foras A"
+    assert sorted_jobs[1].title == "Foras B"
+
+
 # --- New tests ---
 
 
 @pytest.mark.asyncio
-async def test_run_pipeline_scraper_raises():
-    """Test that run_pipeline handles a scraper exception without crashing."""
+async def test_run_pipeline_scraper_raises_continues():
+    """Test that run_pipeline logs error and continues when a scraper raises."""
+    mock_failing_class = _make_mock_scraper_class(RuntimeError("Network failure"))
+    mock_ok_class = _make_mock_scraper_class(SAMPLE_JOBS)
+
     with (
-        patch("it_job_aggregator.main.JobsPsScraper") as mock_scraper_class,
+        patch("it_job_aggregator.main.SCRAPER_REGISTRY", [mock_failing_class, mock_ok_class]),
         patch("it_job_aggregator.main.Database") as mock_db_class,
+        patch("it_job_aggregator.main.JobFormatter") as mock_formatter_class,
         patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
         patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
     ):
-        mock_scraper = AsyncMock()
-        mock_scraper.scrape.side_effect = RuntimeError("Network failure")
-        mock_scraper_class.return_value = mock_scraper
-
         mock_db = MagicMock()
+        mock_db.save_job.return_value = True
         mock_db_class.return_value.__enter__ = MagicMock(return_value=mock_db)
         mock_db_class.return_value.__exit__ = MagicMock(return_value=False)
 
+        mock_formatter_class.format_job.side_effect = [
+            "Formatted Job 1",
+            "Formatted Job 2",
+        ]
+
         from it_job_aggregator.main import run_pipeline
 
-        # Should raise — the pipeline does not swallow scraper errors
-        with pytest.raises(RuntimeError, match="Network failure"):
-            await run_pipeline()
+        # Should NOT raise — the pipeline catches scraper errors and continues
+        await run_pipeline()
 
-        # Nothing should have been sent
-        mock_send.assert_not_awaited()
+        # The second scraper's jobs should still be processed
+        assert mock_send.await_count == 2
+        assert mock_db.save_job.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -579,18 +649,15 @@ async def test_run_pipeline_posts_in_date_order():
             posted_date="10, Feb",
         ),
     ]
+    mock_scraper_class = _make_mock_scraper_class(jobs)
 
     with (
-        patch("it_job_aggregator.main.JobsPsScraper") as mock_scraper_class,
+        patch("it_job_aggregator.main.SCRAPER_REGISTRY", [mock_scraper_class]),
         patch("it_job_aggregator.main.Database") as mock_db_class,
         patch("it_job_aggregator.main.JobFormatter") as mock_formatter_class,
         patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
         patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
     ):
-        mock_scraper = AsyncMock()
-        mock_scraper.scrape.return_value = jobs
-        mock_scraper_class.return_value = mock_scraper
-
         mock_db = MagicMock()
         mock_db.save_job.return_value = True
         mock_db_class.return_value.__enter__ = MagicMock(return_value=mock_db)
@@ -611,4 +678,53 @@ async def test_run_pipeline_posts_in_date_order():
 
         # Old Job (Feb 10) should be formatted/sent before Recent Job (Feb 24)
         assert formatted_titles == ["Old Job", "Recent Job"]
+        assert mock_send.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_multiple_scrapers():
+    """Test that the pipeline aggregates jobs from multiple scrapers."""
+    jobs_a = [
+        Job(
+            title="Job from Source A",
+            link="https://example.com/a/1",
+            source="SourceA",
+            posted_date="20, Feb",
+        ),
+    ]
+    jobs_b = [
+        Job(
+            title="Job from Source B",
+            link="https://example.com/b/1",
+            source="SourceB",
+            posted_date="22, Feb",
+        ),
+    ]
+    mock_class_a = _make_mock_scraper_class(jobs_a)
+    mock_class_b = _make_mock_scraper_class(jobs_b)
+
+    with (
+        patch("it_job_aggregator.main.SCRAPER_REGISTRY", [mock_class_a, mock_class_b]),
+        patch("it_job_aggregator.main.Database") as mock_db_class,
+        patch("it_job_aggregator.main.JobFormatter") as mock_formatter_class,
+        patch("it_job_aggregator.main.send_job_posting", new_callable=AsyncMock) as mock_send,
+        patch("it_job_aggregator.main.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        mock_db = MagicMock()
+        mock_db.save_job.return_value = True
+        mock_db_class.return_value.__enter__ = MagicMock(return_value=mock_db)
+        mock_db_class.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_formatter_class.format_job.return_value = "Formatted"
+
+        from it_job_aggregator.main import run_pipeline
+
+        await run_pipeline()
+
+        # Both scrapers should have been called
+        mock_class_a.return_value.scrape.assert_awaited_once()
+        mock_class_b.return_value.scrape.assert_awaited_once()
+
+        # Both jobs should be saved and sent
+        assert mock_db.save_job.call_count == 2
         assert mock_send.await_count == 2

@@ -733,7 +733,7 @@ async def test_fetch_page_retries_on_error(scraper):
     mock_page = _make_mock_page_with_errors(error_count=2, success_html="<html>Success</html>")
 
     with patch(
-        "it_job_aggregator.scrapers.jobsps_scraper.asyncio.sleep",
+        "it_job_aggregator.scrapers.base.asyncio.sleep",
         new_callable=AsyncMock,
     ) as mock_sleep:
         result = await scraper._fetch_page(
@@ -755,7 +755,7 @@ async def test_fetch_page_returns_none_after_all_retries_fail(scraper):
     mock_page = _make_mock_page_with_errors(error_count=3)
 
     with patch(
-        "it_job_aggregator.scrapers.jobsps_scraper.asyncio.sleep",
+        "it_job_aggregator.scrapers.base.asyncio.sleep",
         new_callable=AsyncMock,
     ):
         result = await scraper._fetch_page(

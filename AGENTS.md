@@ -2,9 +2,10 @@
 
 ## Project Overview
 
-IT Job Aggregator: a Telegram bot that scrapes IT job listings from
-[jobs.ps](https://www.jobs.ps/en/categories/it-jobs), deduplicates via SQLite, sorts by
-posted date, and posts to `@palestineitjobs`.
+IT Job Aggregator: a Telegram bot that aggregates IT job listings from multiple
+Palestinian job boards — currently [jobs.ps](https://www.jobs.ps/en/categories/it-jobs)
+and [foras.ps](https://foras.ps) — deduplicates via SQLite, sorts by posted date, and
+posts to `@palestineitjobs`.
 This is an **SDET portfolio project** — test quality and coverage are first-class concerns.
 
 ## Build & Run Commands
@@ -35,15 +36,17 @@ uv run mypy src/                                 # strict type checking
 
 ```
 src/it_job_aggregator/       # Source package (src-layout, hatchling build)
-├── main.py                  # Pipeline orchestrator + CLI entry point
+├── main.py                  # Pipeline orchestrator + scraper registry + CLI
 ├── config.py                # Lazy-loaded config via PEP 562 __getattr__
 ├── models.py                # Pydantic Job model (with posted_date)
 ├── db.py                    # SQLite deduplication database
-├── formatter.py             # Telegram MarkdownV2 formatter
+├── formatter.py             # Telegram MarkdownV2 formatter (+ deadline normalization)
 ├── bot.py                   # Telegram Bot API sender with retry
+├── utils.py                 # Shared utilities (date parsing with year-boundary fix)
 └── scrapers/
-    ├── base.py              # BaseScraper ABC
-    └── jobsps_scraper.py    # Scrapes jobs.ps with Playwright + BS4
+    ├── base.py              # BaseScraper ABC (_retry helper, SOURCE_NAME, constants)
+    ├── jobsps_scraper.py    # Scrapes jobs.ps with Playwright + BS4
+    └── forasps_scraper.py   # Scrapes foras.ps via public REST API + aiohttp
 tests/                       # pytest test suite (mirrors src structure)
 ├── conftest.py              # Shared fixtures + env var setup (runs before all imports)
 ├── test_bot.py
@@ -52,7 +55,10 @@ tests/                       # pytest test suite (mirrors src structure)
 ├── test_formatter.py
 ├── test_main.py
 ├── test_models.py
-└── test_scrapers.py
+├── test_scrapers.py
+├── test_forasps_scraper.py
+├── test_base_scraper.py
+└── test_utils.py
 ```
 
 ## Code Style
@@ -86,7 +92,8 @@ tests/                       # pytest test suite (mirrors src structure)
 - Log via `logging.getLogger(__name__)` — **never `print()`**.
 - All log messages use **f-strings**: `logger.info(f"Scraped {count} jobs")`.
 - `logging.basicConfig()` is called **only once** in `main.py`.
-- Retry logic: exponential backoff `backoff = initial_backoff * (2 ** (attempt - 1))`.
+- Retry logic lives in `BaseScraper._retry()`: exponential backoff `backoff = initial_backoff * (2 ** (attempt - 1))`.
+- `MAX_RETRIES` and `INITIAL_BACKOFF` are `ClassVar` constants on `BaseScraper`, inherited by all scrapers.
 
 ### Async
 - Scraping and bot operations are async (`async def`, `await`).
@@ -126,8 +133,9 @@ tests/                       # pytest test suite (mirrors src structure)
 
 ### Mocking Patterns
 - Playwright: `patch` with `AsyncMock` for browser, page, and context objects.
+- aiohttp: `patch("aiohttp.ClientSession")` with `AsyncMock` for session/response; use `AsyncMock` context managers for `session.post()` and `session.get()`.
 - Telegram Bot: `patch("it_job_aggregator.bot.Bot")` with `AsyncMock`.
-- Sleep/backoff: `patch("...asyncio.sleep", new_callable=AsyncMock)`.
+- Sleep/backoff: `patch("it_job_aggregator.scrapers.base.asyncio.sleep", new_callable=AsyncMock)` for `_retry()` backoff. Patch the individual scraper module's `asyncio.sleep` for per-scraper delays (e.g., `DETAIL_REQUEST_DELAY`).
 - Config: `os.environ` in conftest, or `monkeypatch.setenv()` / `monkeypatch.delenv()`.
 - Always use full module path in `patch()` targets.
 - Use `patch` as context manager (not decorator).
@@ -155,3 +163,6 @@ tests/                       # pytest test suite (mirrors src structure)
 5. **Date strings** like `"24, Feb"` are NOT ISO-sortable — use `_parse_posted_date()` helper for sorting.
 6. **Playwright base image** is required for Docker — `mcr.microsoft.com/playwright/python:v1.58.0-noble`.
 7. **Docker volume permissions** — if switching user in Dockerfile, remove old volumes with `docker compose down -v`.
+8. **`BaseScraper._retry()` sleep target** — retry backoff sleeps live in `base.py`, so tests must patch `it_job_aggregator.scrapers.base.asyncio.sleep`. Per-scraper delay sleeps (e.g., `DETAIL_REQUEST_DELAY`) still live in each scraper module.
+9. **`SOURCE_NAME`** is a required `ClassVar[str]` on all `BaseScraper` subclasses — used by `main.py` for logging. Access directly as `scraper.SOURCE_NAME`.
+10. **Foras.ps API `major` field** must be an array `[1]`, not integer `1` — the API silently returns empty results otherwise.

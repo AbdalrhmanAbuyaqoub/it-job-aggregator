@@ -10,8 +10,16 @@ from it_job_aggregator.config import DB_PATH, SCRAPE_INTERVAL
 from it_job_aggregator.db import Database
 from it_job_aggregator.formatter import JobFormatter
 from it_job_aggregator.models import Job
+from it_job_aggregator.scrapers.base import BaseScraper
+from it_job_aggregator.scrapers.forasps_scraper import ForasPsScraper
 from it_job_aggregator.scrapers.jobsps_scraper import JobsPsScraper
 from it_job_aggregator.utils import parse_job_date
+
+# Scraper registry: add new scraper classes here to include them in the pipeline.
+SCRAPER_REGISTRY: list[type[BaseScraper]] = [
+    JobsPsScraper,
+    ForasPsScraper,
+]
 
 # Set up logging once, in the application entry point only
 logging.basicConfig(
@@ -35,35 +43,73 @@ def _parse_posted_date(date_str: str) -> datetime:
 
 def sort_jobs_by_posted_date(jobs: list[Job]) -> list[Job]:
     """
-    Sort jobs by posted_date ascending (earliest first).
-    Jobs without a posted_date are placed at the end.
+    Sort jobs by posted_date ascending (earliest first), preserving the
+    relative order of jobs that have no posted_date.
+
+    Dated jobs are sorted among themselves and placed back into the positions
+    originally occupied by dated jobs.  Undated jobs remain in their original
+    positions.  This keeps per-source ordering intact for sources that don't
+    provide a posted_date (e.g. Foras.ps) while correctly interleaving dated
+    jobs from other sources.
+
+    Example::
+
+        [JobsPs(Feb 24), Foras(None), JobsPs(Feb 10), Foras(None)]
+        → [JobsPs(Feb 10), Foras(None), JobsPs(Feb 24), Foras(None)]
     """
-    return sorted(
-        jobs, key=lambda j: _parse_posted_date(j.posted_date) if j.posted_date else datetime.max
-    )
+    if not jobs:
+        return []
+
+    # Collect indices and jobs that have a parseable posted_date
+    dated_indices: list[int] = []
+    dated_jobs: list[Job] = []
+
+    for i, job in enumerate(jobs):
+        if job.posted_date and _parse_posted_date(job.posted_date) != datetime.max:
+            dated_indices.append(i)
+            dated_jobs.append(job)
+
+    # Sort dated jobs by their parsed date (earliest first)
+    dated_jobs.sort(key=lambda j: _parse_posted_date(j.posted_date))  # type: ignore[arg-type]
+
+    # Rebuild the list: undated jobs stay put, dated jobs fill dated slots
+    result = list(jobs)
+    for slot, job in zip(dated_indices, dated_jobs):
+        result[slot] = job
+
+    return result
 
 
 async def run_pipeline() -> None:
-    """Run a single scrape-deduplicate-format-send cycle."""
+    """Run a single scrape-deduplicate-format-send cycle across all registered scrapers."""
     logger.info("Starting IT Job Aggregator Pipeline...")
 
     # Initialize components
     with Database(db_path=DB_PATH) as db:
-        scraper = JobsPsScraper()
+        all_scraped_jobs: list[Job] = []
 
-        logger.info("Scraping IT jobs from jobs.ps...")
-        scraped_jobs = await scraper.scrape(db=db)
-        logger.info(f"Scraped {len(scraped_jobs)} jobs from jobs.ps.")
+        for scraper_class in SCRAPER_REGISTRY:
+            scraper = scraper_class()
+            scraper_name = scraper.SOURCE_NAME
+            logger.info(f"Scraping IT jobs from {scraper_name}...")
+
+            try:
+                scraped_jobs = await scraper.scrape(db=db)
+                logger.info(f"Scraped {len(scraped_jobs)} jobs from {scraper_name}.")
+                all_scraped_jobs.extend(scraped_jobs)
+            except Exception as e:
+                logger.error(f"Scraper {scraper_name} failed: {e}")
+                continue
 
         # Sort by posted date ascending (earliest first)
-        scraped_jobs = sort_jobs_by_posted_date(scraped_jobs)
+        all_scraped_jobs = sort_jobs_by_posted_date(all_scraped_jobs)
 
-        total_scraped = len(scraped_jobs)
+        total_scraped = len(all_scraped_jobs)
         total_duplicates = 0
         total_posted = 0
         total_failed = 0
 
-        for job in scraped_jobs:
+        for job in all_scraped_jobs:
             # Step 1: Save to DB to check for duplicates
             is_new = db.save_job(job)
             if not is_new:
@@ -141,7 +187,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         prog="it-job-aggregator",
-        description="Scrape IT jobs from jobs.ps, deduplicate, and post to Telegram.",
+        description="Scrape IT jobs from multiple sources, deduplicate, and post to Telegram.",
     )
 
     mode = parser.add_mutually_exclusive_group()

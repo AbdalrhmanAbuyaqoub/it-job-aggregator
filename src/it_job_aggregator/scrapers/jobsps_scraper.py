@@ -20,8 +20,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-MAX_RETRIES = 3
-INITIAL_BACKOFF = 2  # seconds
 PAGE_TIMEOUT = 60000  # milliseconds — generous for Cloudflare challenge
 DETAIL_REQUEST_DELAY = 1.0  # seconds between detail page requests
 MAX_AGE_DAYS = 30
@@ -41,8 +39,8 @@ class JobsPsScraper(BaseScraper):
     async def scrape(
         self,
         db: Database | None = None,
-        max_retries: int = MAX_RETRIES,
-        initial_backoff: float = INITIAL_BACKOFF,
+        max_retries: int | None = None,
+        initial_backoff: float | None = None,
     ) -> list[Job]:
         """
         Scrape IT jobs from jobs.ps, returning jobs posted in the last 30 days.
@@ -51,6 +49,9 @@ class JobsPsScraper(BaseScraper):
         page fetch) and pagination stops on the first known URL, making
         subsequent runs significantly faster.
         """
+        retries = max_retries if max_retries is not None else self.MAX_RETRIES
+        backoff = initial_backoff if initial_backoff is not None else self.INITIAL_BACKOFF
+
         jobs: list[Job] = []
         cutoff_date = datetime.now() - timedelta(days=MAX_AGE_DAYS)
 
@@ -67,9 +68,7 @@ class JobsPsScraper(BaseScraper):
             page = await context.new_page()
 
             try:
-                total_pages, first_page_html = await self._get_total_pages(
-                    page, max_retries, initial_backoff
-                )
+                total_pages, first_page_html = await self._get_total_pages(page, retries, backoff)
                 logger.info(f"Found {total_pages} pages of job listings on jobs.ps")
 
                 for page_num in range(1, total_pages + 1):
@@ -82,16 +81,14 @@ class JobsPsScraper(BaseScraper):
                         page,
                         page_num,
                         cutoff_date,
-                        max_retries,
-                        initial_backoff,
+                        retries,
+                        backoff,
                         db=db,
                         prefetched_html=prefetched_html,
                     )
 
                     for listing in listing_jobs:
-                        detail_job = await self._scrape_detail_page(
-                            page, listing, max_retries, initial_backoff
-                        )
+                        detail_job = await self._scrape_detail_page(page, listing, retries, backoff)
                         if detail_job:
                             jobs.append(detail_job)
                         await asyncio.sleep(DETAIL_REQUEST_DELAY)
@@ -368,29 +365,17 @@ class JobsPsScraper(BaseScraper):
         Navigate to a URL with retry logic, waiting for Cloudflare challenge
         to resolve. Returns the page HTML content or None on failure.
         """
-        for attempt in range(1, max_retries + 1):
-            try:
-                response = await page.goto(url, timeout=PAGE_TIMEOUT, wait_until="domcontentloaded")
 
-                # Wait for Cloudflare challenge to resolve if present
-                await self._wait_for_cloudflare(page)
+        async def _attempt() -> str:
+            response = await page.goto(url, timeout=PAGE_TIMEOUT, wait_until="domcontentloaded")
+            await self._wait_for_cloudflare(page)
+            if response and response.status >= 400:
+                raise Exception(f"HTTP {response.status} for {url}")
+            return await page.content()
 
-                if response and response.status >= 400:
-                    raise Exception(f"HTTP {response.status} for {url}")
-
-                return await page.content()
-            except Exception as e:
-                if attempt == max_retries:
-                    logger.error(f"Failed after {max_retries} attempts fetching {url}: {e}")
-                else:
-                    backoff = initial_backoff * (2 ** (attempt - 1))
-                    logger.warning(
-                        f"Fetch attempt {attempt}/{max_retries} failed for {url}: {e}. "
-                        f"Retrying in {backoff}s..."
-                    )
-                    await asyncio.sleep(backoff)
-
-        return None
+        return await self._retry(
+            _attempt, description=url, max_retries=max_retries, initial_backoff=initial_backoff
+        )
 
     @staticmethod
     async def _wait_for_cloudflare(page: Page, timeout: int = 30000) -> None:
